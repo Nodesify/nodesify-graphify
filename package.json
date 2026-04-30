@@ -1,0 +1,5 @@
+{
+  "name": "nodesify-graphify",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

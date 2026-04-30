@@ -1,0 +1,9 @@
+[package]
+name = "graphify-cluster"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+graphify-core = { workspace = true }
+rusqlite = { workspace = true }
+petgraph = { workspace = true }

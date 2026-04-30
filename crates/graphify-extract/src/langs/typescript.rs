@@ -1,0 +1,17 @@
+use super::config::LanguageConfig;
+
+pub fn config() -> &'static LanguageConfig {
+    static CONFIG: LanguageConfig = LanguageConfig {
+        name: "TypeScript",
+        extensions: &[".ts", ".tsx"],
+        language_fn: || tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        class_types: &["class_declaration"],
+        function_types: &["function_declaration", "generator_function_declaration", "method_definition"],
+        import_types: &["import_statement", "import_declaration"],
+        call_type: "call_expression",
+        name_field: "name",
+        body_field: Some("body"),
+        body_fallback_types: &["statement_block"],
+    };
+    &CONFIG
+}
