@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 graphify-core = { workspace = true }
+graphify-paths = { workspace = true }
 walkdir = { workspace = true }
 ignore = { workspace = true }
 sha2 = { workspace = true }

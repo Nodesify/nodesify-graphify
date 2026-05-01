@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use graphify_core::FileType;
+use graphify_paths::normalize;
 use rusqlite::Connection;
 use sha2::{Sha256, Digest};
 
@@ -27,6 +28,9 @@ pub struct DetectResult {
 const CODE_EXTENSIONS: &[&str] = &[
     ".py", ".js", ".jsx", ".mjs", ".ts", ".tsx",
     ".rs", ".go", ".java", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp",
+    ".rb", ".rake", ".swift", ".kt", ".kts", ".scala", ".php", ".cs",
+    ".lua", ".hs", ".ex", ".exs", ".sh", ".bash", ".dart", ".zig",
+    ".css", ".scss",
 ];
 const DOC_EXTENSIONS: &[&str] = &[".md", ".mdx", ".txt", ".rst"];
 const PAPER_EXTENSIONS: &[&str] = &[".pdf"];
@@ -39,6 +43,14 @@ const EXTENSION_TO_LANGUAGE: &[(&str, &str)] = &[
     (".rs", "Rust"), (".go", "Go"), (".java", "Java"),
     (".c", "C"), (".h", "C"), (".cpp", "C++"), (".cc", "C++"),
     (".cxx", "C++"), (".hpp", "C++"),
+    (".rb", "Ruby"), (".rake", "Ruby"), (".swift", "Swift"),
+    (".kt", "Kotlin"), (".kts", "Kotlin"), (".scala", "Scala"),
+    (".php", "PHP"), (".cs", "C#"),
+    (".lua", "Lua"), (".hs", "Haskell"),
+    (".ex", "Elixir"), (".exs", "Elixir"),
+    (".sh", "Shell"), (".bash", "Shell"),
+    (".dart", "Dart"), (".zig", "Zig"),
+    (".css", "CSS"), (".scss", "CSS"),
 ];
 
 pub fn classify_file(path: &Path) -> Option<FileType> {
@@ -99,15 +111,25 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
             continue;
         }
         let relative = path.strip_prefix(root).unwrap_or(path);
+        let rel_str = normalize(relative);
+        if rel_str.starts_with(".graphify/") {
+            continue;
+        }
         let Some(file_type) = classify_file(path) else {
             continue;
         };
 
-        let rel_str = relative.to_string_lossy().to_string().replace('\\', "/");
+        let rel_str = normalize(relative);
         seen_paths.insert(rel_str.clone());
 
         let metadata = std::fs::metadata(path)?;
         let size_bytes = metadata.len();
+
+        // Skip files that are too large
+        if !graphify_core::security::check_file_size(path, size_bytes) {
+            continue;
+        }
+
         let hash = file_hash(path)?;
 
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -176,7 +198,7 @@ pub fn update_manifest(result: &DetectResult, db: &Connection) -> graphify_core:
         db.execute(
             "INSERT OR REPLACE INTO file_manifest (file_path, content_hash, file_type, language, last_seen_at, size_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
-                entry.path.to_string_lossy().to_string().replace('\\', "/"),
+                normalize(&entry.path),
                 entry.content_hash,
                 entry.file_type.as_str(),
                 entry.language,
@@ -186,7 +208,7 @@ pub fn update_manifest(result: &DetectResult, db: &Connection) -> graphify_core:
         )?;
     }
     for entry in &result.removed {
-        db.execute("DELETE FROM file_manifest WHERE file_path = ?1", rusqlite::params![entry.path.to_string_lossy().to_string()])?;
+        db.execute("DELETE FROM file_manifest WHERE file_path = ?1", rusqlite::params![normalize(&entry.path)])?;
     }
     Ok(())
 }
