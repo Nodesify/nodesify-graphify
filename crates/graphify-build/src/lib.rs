@@ -2,6 +2,7 @@
 
 use graphify_core::Result;
 use graphify_extract::Extraction;
+use graphify_paths::normalize;
 use rusqlite::{Connection, Transaction};
 
 #[derive(Debug)]
@@ -19,11 +20,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
     let tx = db.unchecked_transaction()?;
 
     for extraction in extractions {
-        let file_path = extraction
-            .file_path
-            .to_string_lossy()
-            .to_string()
-            .replace('\\', "/");
+        let file_path = normalize(&extraction.file_path);
 
         // Delete old edges first (foreign key references nodes), then old nodes
         tx.execute(
@@ -36,7 +33,6 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
         )?;
 
         for node in &extraction.nodes {
-            // Check if a node with this id already exists from another file
             let existing: bool = tx
                 .query_row(
                     "SELECT COUNT(*) FROM nodes WHERE id = ?1",
@@ -51,15 +47,20 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                 continue;
             }
 
+            let file_type = match node.node_type.as_str() {
+                "rationale" => "rationale",
+                _ => if extraction.language == "markdown" { "document" } else { "code" },
+            };
+
             tx.execute(
                 "INSERT OR IGNORE INTO nodes (id, label, file_type, source_file, source_line, docstring) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![
                     node.id,
-                    node.label,
-                    "code",
-                    normalize_path(&node.source_file),
+                    graphify_core::sanitize_label(&node.label),
+                    file_type,
+                    normalize(&node.source_file),
                     node.source_line,
-                    node.docstring,
+                    node.docstring.as_deref().map(graphify_core::sanitize_docstring),
                 ],
             )?;
             nodes_added += 1;
@@ -67,9 +68,9 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
 
         for edge in &extraction.edges {
             // Ensure source node exists (stub if missing)
-            ensure_node_exists(&tx, &edge.source, &edge.source, &normalize_path(&edge.source_file))?;
+            ensure_node_exists(&tx, &edge.source, &edge.source, &normalize(&edge.source_file))?;
             // Ensure target node exists (stub if missing)
-            ensure_node_exists(&tx, &edge.target, &edge.target, &normalize_path(&edge.source_file))?;
+            ensure_node_exists(&tx, &edge.target, &edge.target, &normalize(&edge.source_file))?;
 
             tx.execute(
                 "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -79,7 +80,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                     edge.relation,
                     edge.confidence,
                     edge.confidence_score,
-                    normalize_path(&edge.source_file),
+                    normalize(&edge.source_file),
                 ],
             )?;
             edges_added += 1;
@@ -112,11 +113,6 @@ fn ensure_node_exists(tx: &Transaction, id: &str, label: &str, source_file: &str
         )?;
     }
     Ok(())
-}
-
-/// Normalize a path to use forward slashes for consistent storage.
-fn normalize_path(path: &std::path::Path) -> String {
-    path.to_string_lossy().to_string().replace('\\', "/")
 }
 
 #[cfg(test)]
