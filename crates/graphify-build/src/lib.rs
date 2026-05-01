@@ -49,6 +49,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
 
             let file_type = match node.node_type.as_str() {
                 "rationale" => "rationale",
+                "concept" | "entity" | "pattern" | "module" => node.node_type.as_str(),
                 _ => if extraction.language == "markdown" { "document" } else { "code" },
             };
 

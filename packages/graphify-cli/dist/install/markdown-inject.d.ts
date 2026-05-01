@@ -1,0 +1,5 @@
+export declare function injectSection(filePath: string, content: string): boolean;
+export declare function removeSection(filePath: string): boolean;
+export declare const PROJECT_MD_SECTION = "## graphify\n\nThis project has a nodesify-graphify knowledge graph at .graphify/.\n\nRules:\n- Before answering architecture or codebase questions, read .graphify/graph_report.md for god nodes and community structure\n- For cross-module \"how does X relate to Y\" questions, prefer `nodesify-graphify query \"<question>\"`, `nodesify-graphify path \"<A>\" \"<B>\"`, or `nodesify-graphify explain \"<concept>\"` over grep\n- After modifying code files in this session, run `nodesify-graphify update .` to keep the graph current";
+export declare const SKILL_REGISTRATION = "\n# graphify\n- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`\nWhen the user types `/graphify`, invoke the Skill tool with `skill: \"graphify\"` before doing anything else.\n";
+//# sourceMappingURL=markdown-inject.d.ts.map

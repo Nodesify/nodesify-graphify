@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
 use graphify_core::db;
 use graphify_paths;
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug)]
 pub struct PipelineResult {
@@ -20,29 +22,158 @@ fn timestamp() -> String {
         .to_string()
 }
 
+fn semantic_cache_key(path: &Path) -> String {
+    format!("semantic:{}", graphify_paths::normalize(path))
+}
+
+fn file_hash(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+fn check_semantic_cache(
+    db: &Connection,
+    path: &Path,
+    hash: &str,
+) -> Option<graphify_semantic::SemanticExtraction> {
+    let key = semantic_cache_key(path);
+    let mut stmt = db
+        .prepare(
+            "SELECT nodes, edges FROM extraction_cache WHERE file_path = ?1 AND content_hash = ?2",
+        )
+        .ok()?;
+    stmt.query_row(rusqlite::params![&key, hash], |row| {
+        let nodes_json: String = row.get(0)?;
+        let edges_json: String = row.get(1)?;
+        Ok((nodes_json, edges_json))
+    })
+    .ok()
+    .map(|(nodes_json, edges_json)| {
+        let nodes: Vec<graphify_semantic::SemanticNode> =
+            serde_json::from_str(&nodes_json).unwrap_or_default();
+        let edges: Vec<graphify_semantic::SemanticEdge> =
+            serde_json::from_str(&edges_json).unwrap_or_default();
+        graphify_semantic::SemanticExtraction { nodes, edges }
+    })
+}
+
+fn save_semantic_cache(
+    db: &Connection,
+    path: &Path,
+    hash: &str,
+    extraction: &graphify_semantic::SemanticExtraction,
+) {
+    let key = semantic_cache_key(path);
+    let nodes_json = serde_json::to_string(&extraction.nodes).unwrap_or_default();
+    let edges_json = serde_json::to_string(&extraction.edges).unwrap_or_default();
+    let now = timestamp();
+    let _ = db.execute(
+        "INSERT OR REPLACE INTO extraction_cache (file_path, content_hash, language, nodes, edges, extracted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![&key, hash, "semantic", nodes_json, edges_json, now],
+    );
+}
+
+/// Enrich existing extractions with LLM-based semantic data.
+/// No-op if GRAPHIFY_LLM_API_KEY is not set.
+fn enrich_with_semantics(
+    files: &[PathBuf],
+    extractions: &mut [graphify_extract::Extraction],
+    db: &Connection,
+) {
+    let backend = match graphify_semantic::ClaudeBackend::from_env() {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+
+    let mut file_to_idx: HashMap<PathBuf, usize> = HashMap::new();
+    for (i, ext) in extractions.iter().enumerate() {
+        file_to_idx.insert(ext.file_path.clone(), i);
+    }
+
+    for file_path in files {
+        let Some(&idx) = file_to_idx.get(file_path) else {
+            continue;
+        };
+        let hash = match file_hash(file_path) {
+            Some(h) => h,
+            None => continue,
+        };
+
+        let sem_ext = match check_semantic_cache(db, file_path, &hash) {
+            Some(cached) => cached,
+            None => {
+                let results = graphify_semantic::extract_semantic_for_files(
+                    std::slice::from_ref(file_path),
+                    &backend,
+                );
+                let Some((_, extraction)) = results.into_iter().next() else {
+                    continue;
+                };
+                save_semantic_cache(db, file_path, &hash, &extraction);
+                extraction
+            }
+        };
+
+        let ext = &mut extractions[idx];
+        for sem_node in sem_ext.nodes {
+            ext.nodes.push(graphify_extract::ExtractedNode {
+                id: sem_node.id,
+                label: sem_node.label,
+                source_file: file_path.clone(),
+                source_line: None,
+                docstring: Some(sem_node.summary),
+                node_type: sem_node.node_type,
+            });
+        }
+        for sem_edge in sem_ext.edges {
+            ext.edges.push(graphify_extract::ExtractedEdge {
+                source: sem_edge.source,
+                target: sem_edge.target,
+                relation: sem_edge.relation,
+                confidence: "SEMANTIC".to_string(),
+                confidence_score: None,
+                source_file: file_path.clone(),
+                source_line: None,
+            });
+        }
+    }
+}
+
 pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
-    let graphify_dir = graphify_paths::graphify_dir(root)?;
-    let db_path = graphify_paths::db_path(root)?;
+    let root = if root.exists() {
+        root.canonicalize().map_err(graphify_core::GraphifyError::Io)?
+    } else {
+        return Err(graphify_core::GraphifyError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("path does not exist: {}", root.display()),
+        )));
+    };
+    let graphify_dir = graphify_paths::graphify_dir(&root)?;
+    let db_path = graphify_paths::db_path(&root)?;
     let db = db::open_db(&db_path)?;
 
-    // Record pipeline start
+    // Record pipeline start (root is now canonicalized)
     let run_id: i64 = db.query_row(
         "INSERT INTO pipeline_runs (started_at, status) VALUES (?1, 'running') RETURNING id",
         rusqlite::params![timestamp()],
         |row| row.get(0),
     )?;
 
-    let result = run_pipeline_inner(root, &db, &graphify_dir);
+    let result = run_pipeline_inner(&root, &db, &graphify_dir);
 
     // Record pipeline completion
     let (status, files_processed, nodes_added, edges_added) = match &result {
         Ok(r) => ("completed", 0i64, r.build_result.nodes_added as i64, r.build_result.edges_added as i64),
         Err(_) => ("failed", 0, 0, 0),
     };
-    let _ = db.execute(
+    if let Err(e) = db.execute(
         "UPDATE pipeline_runs SET finished_at = ?1, status = ?2, files_processed = ?3, nodes_added = ?4, edges_added = ?5 WHERE id = ?6",
         rusqlite::params![timestamp(), status, files_processed, nodes_added, edges_added, run_id],
-    );
+    ) {
+        eprintln!("warning: failed to record pipeline status: {}", e);
+    }
 
     result
 }
@@ -54,9 +185,19 @@ fn run_pipeline_inner(root: &Path, db: &Connection, graphify_dir: &Path) -> grap
     // Clean up removed files from the graph
     for entry in &detected.removed {
         let path_str = graphify_paths::normalize(&entry.path);
-        let _ = db.execute("DELETE FROM edges WHERE source_file = ?1", rusqlite::params![path_str]);
-        let _ = db.execute("DELETE FROM nodes WHERE source_file = ?1", rusqlite::params![path_str]);
-        let _ = db.execute("DELETE FROM extraction_cache WHERE file_path = ?1", rusqlite::params![path_str]);
+        if let Err(e) = db.execute("DELETE FROM edges WHERE source_file = ?1", rusqlite::params![path_str]) {
+            eprintln!("warning: failed to clean edges for {}: {}", path_str, e);
+        }
+        if let Err(e) = db.execute("DELETE FROM nodes WHERE source_file = ?1", rusqlite::params![path_str]) {
+            eprintln!("warning: failed to clean nodes for {}: {}", path_str, e);
+        }
+        if let Err(e) = db.execute("DELETE FROM extraction_cache WHERE file_path = ?1", rusqlite::params![path_str]) {
+            eprintln!("warning: failed to clean cache for {}: {}", path_str, e);
+        }
+        let semantic_key = format!("semantic:{}", path_str);
+        if let Err(e) = db.execute("DELETE FROM extraction_cache WHERE file_path = ?1", rusqlite::params![semantic_key]) {
+            eprintln!("warning: failed to clean semantic cache for {}: {}", path_str, e);
+        }
     }
 
     let files_to_process: Vec<PathBuf> = detected
@@ -86,7 +227,8 @@ fn run_pipeline_inner(root: &Path, db: &Connection, graphify_dir: &Path) -> grap
         });
     }
 
-    let extractions = graphify_extract::extract(&files_to_process, db)?;
+    let mut extractions = graphify_extract::extract(&files_to_process, db)?;
+    enrich_with_semantics(&files_to_process, &mut extractions, db);
     let build_result = graphify_build::build(&extractions, db)?;
     let cluster_result = graphify_cluster::cluster(db)?;
     let analysis = graphify_analyze::analyze(db)?;

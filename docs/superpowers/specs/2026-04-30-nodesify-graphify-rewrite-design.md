@@ -1,8 +1,10 @@
 # Nodesify Graphify — Rust Rewrite Design
 
 **Date**: 2026-04-30
-**Status**: Approved
+**Status**: Implemented
 **Source**: Rearchitecture of `C:\Nodesify\graphify` (Python v0.5.6)
+
+> **Note:** This spec was written before implementation. Some details diverged during the build — deviations are noted inline with `[Actual: ...]` markers.
 
 ---
 
@@ -37,21 +39,21 @@ nodesify-graphify/
 ├── Cargo.toml                    # workspace root
 ├── package.json                  # npm workspace root
 ├── crates/
-│   ├── graphify-core/            # types, SQLite layer, pipeline orchestration
+│   ├── graphify-core/            # types, SQLite layer, pipeline orchestration [Actual: orchestration moved to graphify-napi]
 │   ├── graphify-detect/          # file discovery + classification
 │   ├── graphify-extract/         # tree-sitter AST extraction
 │   ├── graphify-build/           # merge extractions into graph
 │   ├── graphify-cluster/         # community detection (label propagation)
 │   ├── graphify-analyze/         # god nodes, surprises, questions
 │   ├── graphify-report/          # markdown report generation
-│   └── graphify-napi/            # napi-rs bindings
+│   └── graphify-napi/            # napi-rs bindings, pipeline orchestration, query engine
 ├── packages/
 │   └── graphify-cli/             # Node.js CLI package
 ├── tests/
-│   └── fixtures/                 # sample files in 8 languages
+│   └── fixtures/                 # sample files in 8 languages [Actual: no fixtures dir — each crate uses tempfile inline]
 └── .github/
     └── workflows/
-        └── ci.yml
+        └── ci.yml                [Actual: not yet created]
 ```
 
 ### Pipeline
@@ -206,17 +208,20 @@ CREATE TABLE query_history (
 );
 ```
 
-**Pipeline orchestration:**
+**Pipeline orchestration:** [Actual: lives in `graphify-napi/src/pipeline.rs`, not graphify-core]
 
 ```rust
-pub fn run_pipeline(root: &Path, db: &Connection) -> PipelineResult {
-    let detected = detect::detect(root, db)?;
-    let files_to_process: Vec<&PathBuf> = detected.new.iter().chain(detected.changed.iter()).collect();
-    let extractions = extract::extract(&files_to_process, db)?;
-    let build_result = build::build(&extractions, db)?;
-    let cluster_result = cluster::cluster(db)?;
-    let analysis = analyze::analyze(db)?;
-    let report = report::generate_report(db, &analysis)?;
+// Actual signature — takes only root path, opens db internally
+pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
+    let db = db::open_db(&root.join(".graphify").join("db.sqlite"))?;
+    let detected = graphify_detect::detect(root, &db)?;
+    graphify_detect::update_manifest(&detected, &db)?;
+    let extractions = graphify_extract::extract(&files_to_process, &db)?;
+    let build_result = graphify_build::build(&extractions, &db)?;
+    let cluster_result = graphify_cluster::cluster(&db)?;
+    let analysis = graphify_analyze::analyze(&db)?;
+    let report = graphify_report::generate_report(&db, &analysis)?;
+    // ...writes graph_report.md and graph.json
     PipelineResult { build_result, cluster_result, analysis, report }
 }
 ```
@@ -392,16 +397,25 @@ pub fn generate_report(db: &Connection, analysis: &AnalysisResult) -> String
 
 ### graphify-napi
 
-napi-rs bindings. Pure marshalling, no logic.
+napi-rs bindings. Contains pipeline orchestration and query engine.
+
+[Actual: Also contains `query.rs` with BFS/DFS traversal, shortest path, and explain logic — not just marshalling.]
+
+**Actual exposed functions:**
 
 ```rust
 #[napi] pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs>
-#[napi] pub fn query_graph(db_path: String, question: String, opts: QueryOpts) -> napi::Result<QueryResultJs>
-#[napi] pub fn get_node(db_path: String, node_id: String) -> napi::Result<NodeJs>
-#[napi] pub fn get_neighbors(db_path: String, node_id: String) -> napi::Result<Vec<NodeJs>>
-#[napi] pub fn shortest_path(db_path: String, from: String, to: String) -> napi::Result<Vec<String>>
-#[napi] pub fn graph_stats(db_path: String) -> napi::Result<GraphStatsJs>
-#[napi] pub fn export_json(db_path: String, out_path: String) -> napi::Result<()>
+#[napi] pub fn update_pipeline(root: String) -> napi::Result<PipelineResultJs>  // reuses run_pipeline internally
+#[napi] pub fn query_graph(root: String, question: String, mode: String, depth: i64, budget: i64) -> napi::Result<QueryResultJs>
+#[napi] pub fn find_path(root: String, source: String, target: String) -> napi::Result<PathResultJs>
+#[napi] pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<ExplainResultJs>>
+#[napi] pub fn get_node(root: String, node_id: String) -> napi::Result<Option<NodeJs>>
+#[napi] pub fn get_neighbors(root: String, node_id: String) -> napi::Result<Vec<NodeJs>>
+#[napi] pub fn graph_stats(root: String) -> napi::Result<GraphStatsJs>
+#[napi] pub fn export_json_cmd(root: String, out_path: String) -> napi::Result<()>
+```
+
+Note: All functions take `root` (project directory path), not `db_path`. The db path is derived internally as `root/.graphify/db.sqlite`.
 ```
 
 ---
@@ -414,10 +428,10 @@ Node.js CLI package.
 {
   "name": "@nodesify/graphify",
   "version": "0.1.0",
-  "bin": { "graphify": "./dist/index.js" },
+  "bin": { "nodesify-graphify": "./dist/index.js" },  [Actual: bin name is "nodesify-graphify", not "graphify"]
   "napi": {
     "name": "graphify",
-    "triples": ["darwin-arm64", "darwin-x64", "linux-x64-gnu", "win32-x64-msvc"]
+    "triples": { "defaults": true, "additional": ["x86_64-pc-windows-msvc", "aarch64-apple-darwin", "x86_64-unknown-linux-gnu"] }
   }
 }
 ```
@@ -426,13 +440,16 @@ Node.js CLI package.
 
 | Command | Purpose |
 |---------|---------|
-| `graphify run <path>` | Full pipeline |
-| `graphify query "<question>"` | BFS/DFS traversal |
-| `graphify path "A" "B"` | Shortest path |
-| `graphify explain "X"` | Node explanation |
-| `graphify stats` | Graph statistics |
-| `graphify update <path>` | Incremental update |
-| `graphify export` | Export to JSON |
+| `nodesify-graphify run <path>` | Full pipeline |
+| `nodesify-graphify update <path>` | Incremental update |
+| `nodesify-graphify watch <path>` | Watch for file changes, auto-rebuild [Actual: implemented in Node.js, not Rust] |
+| `nodesify-graphify query "<question>"` | BFS/DFS traversal (`--dfs`, `--budget N`, `--graph`) |
+| `nodesify-graphify path "A" "B"` | Shortest path (`--graph`) |
+| `nodesify-graphify explain "X"` | Node explanation (`--graph`) |
+| `nodesify-graphify stats` | Graph statistics (`--graph`) |
+| `nodesify-graphify export` | Export to JSON (`--graph`, `--out`) |
+| `nodesify-graphify install [--platform P]` | Install skill files for AI platforms [Actual: added post-v1] |
+| `nodesify-graphify hook install/uninstall/status` | Git hook management [Actual: added post-v1] |
 
 ---
 
@@ -451,6 +468,8 @@ pub enum GraphifyError {
     Parse { file: String, message: String },
     #[error("Graph error: {0}")]
     Graph(String),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),  // [Actual: added during implementation]
 }
 ```
 
@@ -486,16 +505,23 @@ No panics in library code. All errors propagate as `Result`.
 
 ## Testing Strategy
 
-- **Rust unit tests**: One test module per crate, `#[cfg(test)]` inline
-- **Integration tests**: `tests/` at workspace root with fixture files in 8 languages
-- **Node.js tests**: Test each CLI command against fixture project
-- **CI**: cargo test + npm test + napi build check on push
+- **Rust unit tests**: One test module per crate, `#[cfg(test)]` inline. Each crate uses in-memory SQLite (`open_db_in_memory()`) and `tempfile` for filesystem fixtures.
+- **Integration tests**: Not yet implemented. Planned: `tests/` at workspace root with fixture files in 8 languages.
+- **Node.js tests**: Not yet implemented. No test script in `packages/graphify-cli/package.json`.
+- **CI**: Not yet set up. Planned: cargo test + npm test + napi build check on push.
 
 ---
 
-## Future Expansion (post-v1)
+## Implemented Expansion (originally post-v1, now done)
 
-These are explicitly out of scope for v1 but the architecture supports them:
+| Feature | How it was implemented |
+|---------|----------------------|
+| Watch mode | `packages/graphify-cli/src/commands/watch.ts` — Node.js `fs.watch` with debounce, not a separate Rust crate |
+| Skill system | `nodesify-graphify install` command + `packages/graphify-cli/src/commands/install.ts` + platform-specific skill files in `skills/` |
+
+## Future Expansion (still pending)
+
+These are out of scope for v1 and not yet implemented:
 
 | Feature | How it fits |
 |---------|-------------|
@@ -503,9 +529,10 @@ These are explicitly out of scope for v1 but the architecture supports them:
 | GraphML export | New crate `graphify-export-graphml` |
 | Obsidian export | New crate `graphify-export-obsidian` |
 | MCP server | New crate `graphify-serve`, reads from SQLite |
-| Watch mode | New crate `graphify-watch`, calls `run_pipeline` on change |
 | More languages | Add files to `graphify-extract/src/langs/` |
 | LLM semantic extraction | New crate `graphify-semantic`, enriches graph |
 | Video transcription | New crate `graphify-transcribe` |
-| Skill system | Platform installers in `graphify-cli` |
 | Neo4j export | New crate `graphify-export-neo4j` |
+| Integration tests | `tests/` at workspace root with fixture files |
+| CI pipeline | `.github/workflows/ci.yml` |
+| Node.js CLI tests | Test runner in `packages/graphify-cli` |

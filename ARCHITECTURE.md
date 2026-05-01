@@ -1,8 +1,11 @@
-# Graphify Architecture Reference
+# Graphify Architecture Reference (LEGACY)
 
+> **This document describes the OLD Python implementation (v0.5.6) for historical reference only.**
+> The current codebase is a Rust rewrite. See `README.md` for the current architecture.
+>
 > Source: `C:\Nodesify\graphify` (branch `v5`, version 0.5.6, PyPI: `graphifyy`)
 
-This document captures the existing architecture of graphify to inform the rearchitecture of `nodesify-graphify`.
+This document captures the pre-rewrite Python architecture to provide context on design decisions.
 
 ---
 

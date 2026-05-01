@@ -17,9 +17,11 @@ graphify-cluster = { workspace = true }
 graphify-analyze = { workspace = true }
 graphify-report = { workspace = true }
 graphify-paths = { workspace = true }
+graphify-semantic = { workspace = true }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }
 petgraph = { workspace = true }
+sha2 = { workspace = true }
 
 [build-dependencies]
 napi-build = "2"

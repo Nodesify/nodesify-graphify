@@ -1,5 +1,9 @@
-# Graphify Rearchitecture Notes
+# Graphify Rearchitecture Notes (LEGACY)
 
+> **This document captures pre-rewrite analysis of the old Python implementation.**
+> The Rust rewrite is complete. See `README.md` for the current architecture.
+> See `docs/superpowers/specs/2026-04-30-nodesify-graphify-rewrite-design.md` for the design decisions made.
+>
 > Observations and improvement opportunities from studying the existing `C:\Nodesify\graphify` (v0.5.6).
 
 ---

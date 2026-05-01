@@ -5,10 +5,10 @@ use rusqlite::Connection;
 pub fn export_graphml(db: &Connection, out_path: &Path) -> graphify_core::Result<()> {
     let mut xml = String::new();
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.push_str("<graphml xmlns=\"http://graphml.graphstruct.org/graphml\"\n");
+    xml.push_str("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"\n");
     xml.push_str("         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
-    xml.push_str("         xsi:schemaLocation=\"http://graphml.graphstruct.org/graphml\n");
-    xml.push_str("         http://graphml.graphstruct.org/graphml/1.1/graphml.xsd\">\n");
+    xml.push_str("         xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns\n");
+    xml.push_str("         http://graphml.graphdrawing.org/xmlns/1.1/graphml.xsd\">\n");
 
     // Key definitions for node attributes
     xml.push_str("  <key id=\"label\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>\n");

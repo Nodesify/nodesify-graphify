@@ -1,6 +1,7 @@
 // graphify-semantic: LLM-based semantic extraction for knowledge graph enrichment
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use graphify_core::GraphifyError;
 use graphify_core::Result;
@@ -78,6 +79,7 @@ impl SemanticBackend for NoopBackend {
 
 /// Backend that calls the Anthropic Claude API for semantic extraction.
 pub struct ClaudeBackend {
+    agent: ureq::Agent,
     api_key: String,
     model: String,
 }
@@ -95,12 +97,20 @@ impl ClaudeBackend {
         })?;
         let model =
             std::env::var("GRAPHIFY_LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".into());
-        Ok(Self { api_key, model })
+        let agent = ureq::config::Config::builder()
+            .timeout_global(Some(Duration::from_secs(30)))
+            .build()
+            .new_agent();
+        Ok(Self { agent, api_key, model })
     }
 
     /// Create with explicit credentials (useful for testing).
     pub fn new(api_key: String, model: String) -> Self {
-        Self { api_key, model }
+        let agent = ureq::config::Config::builder()
+            .timeout_global(Some(Duration::from_secs(30)))
+            .build()
+            .new_agent();
+        Self { agent, api_key, model }
     }
 
     /// Build the JSON prompt payload sent to the Anthropic Messages API.
@@ -140,7 +150,7 @@ impl SemanticBackend for ClaudeBackend {
         let body = self.build_request_body(content, file_type);
         let body_str = serde_json::to_string(&body)?;
 
-        let response = ureq::post("https://api.anthropic.com/v1/messages")
+        let response = self.agent.post("https://api.anthropic.com/v1/messages")
             .header("Content-Type", "application/json")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -187,21 +197,31 @@ impl SemanticBackend for ClaudeBackend {
 /// Read the given files and run semantic extraction on each using the provided backend.
 ///
 /// Files that cannot be read as UTF-8 text are silently skipped.
+/// Returns `(file_path, extraction)` tuples to preserve file provenance.
 pub fn extract_semantic_for_files(
     files: &[PathBuf],
     backend: &dyn SemanticBackend,
-) -> Vec<SemanticExtraction> {
-    files
-        .iter()
-        .filter_map(|path| {
-            let content = std::fs::read_to_string(path).ok()?;
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("unknown");
-            backend.extract_semantic(&content, ext).ok()
-        })
-        .collect()
+) -> Vec<(PathBuf, SemanticExtraction)> {
+    let mut results = Vec::new();
+    for (i, path) in files.iter().enumerate() {
+        if i > 0 {
+            // Simple rate-limiting: pause between API calls to avoid hitting limits.
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("unknown");
+        match backend.extract_semantic(&content, ext) {
+            Ok(extraction) => results.push((path.clone(), extraction)),
+            Err(_) => continue,
+        }
+    }
+    results
 }
 
 // ---------------------------------------------------------------------------

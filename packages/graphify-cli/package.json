@@ -3,9 +3,17 @@
   "version": "0.1.0",
   "description": "Turn any folder into a queryable knowledge graph",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "nodesify-graphify": "./dist/index.js"
   },
+  "files": [
+    "dist/**/*",
+    "!dist/__tests__/**",
+    "skills/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -14,6 +22,22 @@
     "napi:artifacts": "napi artifacts",
     "prepublishOnly": "napi prepublish -t npm",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js || tsx src/__tests__/cli.test.ts"
+  },
+  "keywords": [
+    "knowledge-graph",
+    "code-analysis",
+    "tree-sitter",
+    "ast",
+    "code-intelligence"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nodesify/nodesify-graphify.git"
+  },
+  "homepage": "https://github.com/nodesify/nodesify-graphify#readme",
+  "bugs": {
+    "url": "https://github.com/nodesify/nodesify-graphify/issues"
   },
   "dependencies": {
     "commander": "^12"
@@ -31,10 +55,18 @@
     "triples": {
       "defaults": true,
       "additional": [
-        "x86_64-pc-windows-msvc",
         "aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu"
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl"
       ]
     }
+  },
+  "optionalDependencies": {
+    "@nodesify/graphify-win32-x64-msvc": "0.1.0",
+    "@nodesify/graphify-darwin-x64": "0.1.0",
+    "@nodesify/graphify-linux-x64-gnu": "0.1.0",
+    "@nodesify/graphify-darwin-arm64": "0.1.0",
+    "@nodesify/graphify-linux-arm64-gnu": "0.1.0",
+    "@nodesify/graphify-linux-x64-musl": "0.1.0"
   }
 }

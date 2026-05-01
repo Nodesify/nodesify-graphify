@@ -1,6 +1,15 @@
 # Nodesify Graphify Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS: COMPLETE.** All phases 1–8 have been implemented. Phases 9 (integration tests) and CI are not yet done.
+>
+> **Deviations from this plan:**
+> - `tests/fixtures/` was not created. Each crate uses `tempfile` for on-the-fly fixtures in unit tests instead.
+> - `graphify-core/src/pipeline.rs` was not created. Pipeline orchestration lives in `graphify-napi/src/pipeline.rs`.
+> - CLI has additional commands not in original plan: `watch`, `install`, `hook` (in `packages/graphify-cli/src/commands/`).
+> - `graphify-napi/src/query.rs` added separately — contains BFS/DFS query, shortest path, and explain logic.
+> - `ARCHITECTURE.md` and `REARCHITECTURE.md` now marked as legacy reference docs.
+>
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Rewrite graphify from Python to Rust, published via npm as `@nodesify/graphify`, with core pipeline (detect → extract → build → cluster → analyze → report → export) backed by SQLite persistence and petgraph algorithms.
 
@@ -109,16 +118,16 @@ nodesify-graphify/
 
 ---
 
-## Phase 1: Workspace Scaffolding
+## Phase 1: Workspace Scaffolding ✅
 
-### Task 1: Initialize Rust workspace
+### Task 1: Initialize Rust workspace ✅
 
 **Files:**
 - Create: `Cargo.toml` (workspace root)
 - Create: `crates/graphify-core/Cargo.toml`
 - Create: `crates/graphify-core/src/lib.rs`
 
-- [ ] **Step 1: Create workspace root Cargo.toml**
+- [x] **Step 1: Create workspace root Cargo.toml**
 
 ```toml
 [workspace]
@@ -161,7 +170,7 @@ tree-sitter-c = "0.25"
 tree-sitter-cpp = "0.25"
 ```
 
-- [ ] **Step 2: Create graphify-core Cargo.toml**
+- [x] **Step 2: Create graphify-core Cargo.toml**
 
 ```toml
 [package]
@@ -183,7 +192,7 @@ graphify-analyze = { workspace = true }
 graphify-report = { workspace = true }
 ```
 
-- [ ] **Step 3: Create graphify-core/src/lib.rs placeholder**
+- [x] **Step 3: Create graphify-core/src/lib.rs placeholder**
 
 ```rust
 pub mod types;
@@ -191,7 +200,7 @@ pub mod error;
 pub mod db;
 ```
 
-- [ ] **Step 4: Create stub Cargo.toml and src/lib.rs for remaining crates**
+- [x] **Step 4: Create stub Cargo.toml and src/lib.rs for remaining crates**
 
 Each crate gets a minimal Cargo.toml and `src/lib.rs` with an empty body so the workspace compiles.
 
@@ -348,12 +357,12 @@ fn main() {
 // TODO: implement
 ```
 
-- [ ] **Step 5: Verify workspace compiles**
+- [x] **Step 5: Verify workspace compiles**
 
 Run: `cargo check`
 Expected: Compiles with warnings about unused modules. No errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git init
@@ -363,15 +372,15 @@ git commit -m "feat: scaffold Rust workspace with 8 crates"
 
 ---
 
-## Phase 2: Core Types & SQLite Layer
+## Phase 2: Core Types & SQLite Layer ✅
 
-### Task 2: Define core types
+### Task 2: Define core types ✅
 
 **Files:**
 - Create: `crates/graphify-core/src/types.rs`
 - Create: `crates/graphify-core/src/error.rs`
 
-- [ ] **Step 1: Write types.rs with tests**
+- [x] **Step 1: Write types.rs with tests**
 
 `crates/graphify-core/src/types.rs`:
 ```rust
@@ -558,7 +567,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Write error.rs**
+- [x] **Step 2: Write error.rs**
 
 `crates/graphify-core/src/error.rs`:
 ```rust
@@ -583,12 +592,12 @@ pub enum GraphifyError {
 pub type Result<T> = std::result::Result<T, GraphifyError>;
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `cargo test -p graphify-core`
 Expected: 4 tests pass (file_type_roundtrip, relation_roundtrip, confidence_roundtrip, node_serialization_roundtrip).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A
@@ -597,13 +606,13 @@ git commit -m "feat: core types (Node, Edge, Relation, Confidence) with serializ
 
 ---
 
-### Task 3: SQLite schema & connection management
+### Task 3: SQLite schema & connection management ✅
 
 **Files:**
 - Create: `crates/graphify-core/src/db.rs`
 - Modify: `crates/graphify-core/src/lib.rs`
 
-- [ ] **Step 1: Write db.rs with tests**
+- [x] **Step 1: Write db.rs with tests**
 
 `crates/graphify-core/src/db.rs`:
 ```rust
@@ -741,7 +750,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Update lib.rs**
+- [x] **Step 2: Update lib.rs**
 
 `crates/graphify-core/src/lib.rs`:
 ```rust
@@ -754,12 +763,12 @@ pub use error::{GraphifyError, Result};
 pub use db::{open_db, open_db_in_memory};
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `cargo test -p graphify-core`
 Expected: All tests pass (7 total: 4 from types, 3 from db).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A
@@ -768,14 +777,14 @@ git commit -m "feat: SQLite schema with 6 tables, indexes, connection management
 
 ---
 
-## Phase 3: Detect
+## Phase 3: Detect ✅
 
-### Task 4: File discovery & classification
+### Task 4: File discovery & classification ✅
 
 **Files:**
 - Modify: `crates/graphify-detect/src/lib.rs`
 
-- [ ] **Step 1: Write detect implementation with tests**
+- [x] **Step 1: Write detect implementation with tests**
 
 `crates/graphify-detect/src/lib.rs`:
 ```rust
@@ -1058,12 +1067,12 @@ Add `tempfile` dev dependency to `crates/graphify-detect/Cargo.toml`:
 tempfile = "3"
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cargo test -p graphify-detect`
 Expected: 5 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -1072,9 +1081,9 @@ git commit -m "feat: detect module — file discovery, classification, increment
 
 ---
 
-## Phase 4: Extract
+## Phase 4: Extract ✅
 
-### Task 5: Extraction engine + LanguageConfig + schema
+### Task 5: Extraction engine + LanguageConfig + schema ✅
 
 **Files:**
 - Create: `crates/graphify-extract/src/schema.rs`
@@ -1083,7 +1092,7 @@ git commit -m "feat: detect module — file discovery, classification, increment
 - Create: `crates/graphify-extract/src/engine.rs`
 - Modify: `crates/graphify-extract/src/lib.rs`
 
-- [ ] **Step 1: Write extraction schema**
+- [x] **Step 1: Write extraction schema**
 
 `crates/graphify-extract/src/schema.rs`:
 ```rust
@@ -1119,7 +1128,7 @@ pub struct Extraction {
 }
 ```
 
-- [ ] **Step 2: Write LanguageConfig**
+- [x] **Step 2: Write LanguageConfig**
 
 `crates/graphify-extract/src/langs/config.rs`:
 ```rust
@@ -1139,7 +1148,7 @@ pub struct LanguageConfig {
 }
 ```
 
-- [ ] **Step 3: Write language registry with Python config**
+- [x] **Step 3: Write language registry with Python config**
 
 `crates/graphify-extract/src/langs/mod.rs`:
 ```rust
@@ -1173,7 +1182,7 @@ pub fn all_languages() -> Vec<&'static LanguageConfig> {
 }
 ```
 
-- [ ] **Step 4: Write Python language config**
+- [x] **Step 4: Write Python language config**
 
 `crates/graphify-extract/src/langs/python.rs`:
 ```rust
@@ -1195,7 +1204,7 @@ pub fn config() -> &'static LanguageConfig {
 }
 ```
 
-- [ ] **Step 5: Write remaining language configs**
+- [x] **Step 5: Write remaining language configs**
 
 `crates/graphify-extract/src/langs/javascript.rs`:
 ```rust
@@ -1361,7 +1370,7 @@ pub fn all_languages() -> Vec<&'static LanguageConfig> {
 }
 ```
 
-- [ ] **Step 6: Write extraction engine**
+- [x] **Step 6: Write extraction engine**
 
 `crates/graphify-extract/src/engine.rs`:
 ```rust
@@ -1822,7 +1831,7 @@ function helper() {
 }
 ```
 
-- [ ] **Step 7: Update lib.rs**
+- [x] **Step 7: Update lib.rs**
 
 `crates/graphify-extract/src/lib.rs`:
 ```rust
@@ -1834,12 +1843,12 @@ pub use schema::{Extraction, ExtractedNode, ExtractedEdge};
 pub use engine::extract;
 ```
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `cargo test -p graphify-extract`
 Expected: 4 tests pass (python, rust, javascript, cache).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -1848,14 +1857,14 @@ git commit -m "feat: extract engine — tree-sitter AST parsing, 8 languages, tw
 
 ---
 
-## Phase 5: Build, Cluster, Analyze, Report
+## Phase 5: Build, Cluster, Analyze, Report ✅
 
-### Task 6: Build — merge extractions into SQLite
+### Task 6: Build — merge extractions into SQLite ✅
 
 **Files:**
 - Modify: `crates/graphify-build/src/lib.rs`
 
-- [ ] **Step 1: Write build implementation with tests**
+- [x] **Step 1: Write build implementation with tests**
 
 `crates/graphify-build/src/lib.rs`:
 ```rust
@@ -1999,12 +2008,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cargo test -p graphify-build`
 Expected: 3 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -2013,12 +2022,12 @@ git commit -m "feat: build module — merge extractions into SQLite, incremental
 
 ---
 
-### Task 7: Cluster — label propagation
+### Task 7: Cluster — label propagation ✅
 
 **Files:**
 - Modify: `crates/graphify-cluster/src/lib.rs`
 
-- [ ] **Step 1: Write cluster implementation with tests**
+- [x] **Step 1: Write cluster implementation with tests**
 
 `crates/graphify-cluster/src/lib.rs`:
 ```rust
@@ -2172,12 +2181,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cargo test -p graphify-cluster`
 Expected: 3 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -2186,12 +2195,12 @@ git commit -m "feat: cluster module — label propagation via petgraph, SQLite p
 
 ---
 
-### Task 8: Analyze — god nodes, surprising connections, questions
+### Task 8: Analyze — god nodes, surprising connections, questions ✅
 
 **Files:**
 - Modify: `crates/graphify-analyze/src/lib.rs`
 
-- [ ] **Step 1: Write analyze implementation with tests**
+- [x] **Step 1: Write analyze implementation with tests**
 
 `crates/graphify-analyze/src/lib.rs`:
 ```rust
@@ -2362,12 +2371,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cargo test -p graphify-analyze`
 Expected: 3 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -2376,12 +2385,12 @@ git commit -m "feat: analyze module — god nodes, surprising connections, sugge
 
 ---
 
-### Task 9: Report — markdown generation
+### Task 9: Report — markdown generation ✅
 
 **Files:**
 - Modify: `crates/graphify-report/src/lib.rs`
 
-- [ ] **Step 1: Write report implementation with tests**
+- [x] **Step 1: Write report implementation with tests**
 
 `crates/graphify-report/src/lib.rs`:
 ```rust
@@ -2483,12 +2492,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cargo test -p graphify-report`
 Expected: 2 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -2497,15 +2506,15 @@ git commit -m "feat: report module — markdown report from graph analysis"
 
 ---
 
-## Phase 6: Pipeline Orchestration & Export
+## Phase 6: Pipeline Orchestration & Export ✅
 
-### Task 10: Pipeline orchestration + JSON export
+### Task 10: Pipeline orchestration + JSON export ✅
 
 **Files:**
 - Create: `crates/graphify-core/src/pipeline.rs`
 - Modify: `crates/graphify-core/src/lib.rs`
 
-- [ ] **Step 1: Write pipeline orchestration**
+- [x] **Step 1: Write pipeline orchestration**
 
 `crates/graphify-core/src/pipeline.rs`:
 ```rust
@@ -2623,7 +2632,7 @@ pub fn load_graph_db(root: &Path) -> Result<Connection> {
 }
 ```
 
-- [ ] **Step 2: Update lib.rs**
+- [x] **Step 2: Update lib.rs**
 
 `crates/graphify-core/src/lib.rs`:
 ```rust
@@ -2638,12 +2647,12 @@ pub use db::{open_db, open_db_in_memory};
 pub use pipeline::{run_pipeline, export_json, load_graph_db};
 ```
 
-- [ ] **Step 3: Run full workspace tests**
+- [x] **Step 3: Run full workspace tests**
 
 Run: `cargo test`
 Expected: All tests across all crates pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A
@@ -2652,14 +2661,14 @@ git commit -m "feat: pipeline orchestration — detect→extract→build→clust
 
 ---
 
-## Phase 7: napi-rs Bindings
+## Phase 7: napi-rs Bindings ✅
 
-### Task 11: Rust-to-Node bridge
+### Task 11: Rust-to-Node bridge ✅
 
 **Files:**
 - Modify: `crates/graphify-napi/src/lib.rs`
 
-- [ ] **Step 1: Write napi bindings**
+- [x] **Step 1: Write napi bindings**
 
 `crates/graphify-napi/src/lib.rs`:
 ```rust
@@ -2789,12 +2798,12 @@ pub fn export_json(root: String, out_path: String) -> napi::Result<()> {
 }
 ```
 
-- [ ] **Step 2: Build napi module**
+- [x] **Step 2: Build napi module**
 
 Run: `cd crates/graphify-napi && cargo check`
 Expected: Compiles without errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -2803,9 +2812,9 @@ git commit -m "feat: napi-rs bindings — run_pipeline, graph_stats, get_node, g
 
 ---
 
-## Phase 8: Node.js CLI
+## Phase 8: Node.js CLI ✅
 
-### Task 12: CLI package setup + commands
+### Task 12: CLI package setup + commands ✅
 
 **Files:**
 - Create: `packages/graphify-cli/package.json`
@@ -2820,7 +2829,7 @@ git commit -m "feat: napi-rs bindings — run_pipeline, graph_stats, get_node, g
 - Create: `packages/graphify-cli/src/commands/export.ts`
 - Modify: `package.json` (workspace root)
 
-- [ ] **Step 1: Create package.json**
+- [x] **Step 1: Create package.json**
 
 `packages/graphify-cli/package.json`:
 ```json
@@ -2857,7 +2866,7 @@ git commit -m "feat: napi-rs bindings — run_pipeline, graph_stats, get_node, g
 }
 ```
 
-- [ ] **Step 2: Create tsconfig.json**
+- [x] **Step 2: Create tsconfig.json**
 
 `packages/graphify-cli/tsconfig.json`:
 ```json
@@ -2882,7 +2891,7 @@ git commit -m "feat: napi-rs bindings — run_pipeline, graph_stats, get_node, g
 }
 ```
 
-- [ ] **Step 3: Create CLI entry point**
+- [x] **Step 3: Create CLI entry point**
 
 `packages/graphify-cli/src/index.ts`:
 ```typescript
@@ -2954,7 +2963,7 @@ program
 program.parse();
 ```
 
-- [ ] **Step 4: Create command files**
+- [x] **Step 4: Create command files**
 
 `packages/graphify-cli/src/commands/run.ts`:
 ```typescript
@@ -3045,7 +3054,7 @@ export async function exportCommand(opts: { graph: string; out: string }) {
 }
 ```
 
-- [ ] **Step 5: Create workspace root package.json**
+- [x] **Step 5: Create workspace root package.json**
 
 `package.json`:
 ```json
@@ -3056,12 +3065,12 @@ export async function exportCommand(opts: { graph: string; out: string }) {
 }
 ```
 
-- [ ] **Step 6: Install deps and compile**
+- [x] **Step 6: Install deps and compile**
 
 Run: `cd packages/graphify-cli && npm install && npx tsc --noEmit`
 Expected: TypeScript compiles (may have warnings about missing .node module — that's expected until napi build runs).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -3084,7 +3093,7 @@ git commit -m "feat: Node.js CLI with 7 commands (run, query, path, explain, sta
 - Create: `tests/fixtures/c/sample.c`
 - Create: `tests/fixtures/cpp/sample.cpp`
 
-- [ ] **Step 1: Create fixture files**
+- [x] **Step 1: Create fixture files**
 
 `tests/fixtures/python/sample.py`:
 ```python
@@ -3251,7 +3260,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add -A
@@ -3265,7 +3274,7 @@ git commit -m "test: fixture files in 8 languages for integration testing"
 **Files:**
 - Create: `tests/integration/pipeline_test.rs`
 
-- [ ] **Step 1: Write integration test**
+- [x] **Step 1: Write integration test**
 
 `tests/integration/pipeline_test.rs`:
 ```rust
@@ -3351,12 +3360,12 @@ graphify-core = { workspace = true }
 serde_json = { workspace = true }
 ```
 
-- [ ] **Step 2: Run integration tests**
+- [x] **Step 2: Run integration tests**
 
 Run: `cargo test --test pipeline_test`
 Expected: 5 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -3370,7 +3379,7 @@ git commit -m "test: end-to-end integration tests for full pipeline"
 **Files:**
 - Create: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: Write CI workflow**
+- [x] **Step 1: Write CI workflow**
 
 `.github/workflows/ci.yml`:
 ```yaml
@@ -3410,7 +3419,7 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add -A

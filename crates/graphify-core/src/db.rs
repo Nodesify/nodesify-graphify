@@ -1,7 +1,9 @@
 use rusqlite::Connection;
 use crate::error::Result;
 
-const SCHEMA: &str = "
+const _CURRENT_SCHEMA_VERSION: i64 = 1;
+
+const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS extraction_cache (
     file_path TEXT PRIMARY KEY,
     content_hash TEXT NOT NULL,
@@ -62,19 +64,48 @@ CREATE TABLE IF NOT EXISTS query_history (
     path_taken TEXT,
     queried_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '1');
 ";
+
+/// Run any pending schema migrations. Currently only v1 exists.
+fn run_migrations(conn: &Connection) -> Result<()> {
+    let version: i64 = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM _meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    if version < 1 {
+        conn.execute_batch(SCHEMA_V1)?;
+    }
+    // Future migrations go here:
+    // if version < 2 { conn.execute_batch(SCHEMA_V2)?; }
+
+    Ok(())
+}
 
 pub fn open_db(path: &std::path::Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-    conn.execute_batch(SCHEMA)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+    let is_new = conn
+        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) == 0;
+    if is_new {
+        conn.execute_batch(SCHEMA_V1)?;
+    } else {
+        run_migrations(&conn)?;
+    }
     Ok(conn)
 }
 
 pub fn open_db_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
-    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-    conn.execute_batch(SCHEMA)?;
+    conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+    conn.execute_batch(SCHEMA_V1)?;
     Ok(conn)
 }
 

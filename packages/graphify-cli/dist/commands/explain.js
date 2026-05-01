@@ -1,20 +1,34 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.explainCommand = explainCommand;
-// @ts-ignore
-const graphify_node_1 = require("../../graphify.node");
+const native_1 = require("../native");
 async function explainCommand(node, opts) {
-    const result = (0, graphify_node_1.getNode)(opts.graph, node);
-    if (!result) {
-        console.log(`Node "${node}" not found`);
-        return;
+    try {
+        const result = (0, native_1.explainNode)(opts.graph, node);
+        if (!result) {
+            console.log(`Node "${node}" not found`);
+            return;
+        }
+        console.log(`Node: ${result.label}`);
+        console.log(`  ID: ${result.id}`);
+        console.log(`  File: ${result.sourceFile}`);
+        if (result.community !== null && result.community !== undefined) {
+            console.log(`  Community: ${result.community}`);
+        }
+        if (result.neighbors.length > 0) {
+            console.log(`\nConnections (${result.neighborCount}):`);
+            for (const n of result.neighbors) {
+                console.log(`  --> ${n.neighborLabel} [${n.relation}] [${n.confidence}]`);
+            }
+            if (result.neighborCount > result.neighbors.length) {
+                const remaining = result.neighborCount - result.neighbors.length;
+                console.log(`  ... and ${remaining} more`);
+            }
+        }
     }
-    console.log(`Node: ${result.label}`);
-    console.log(`  File: ${result.sourceFile}:${result.sourceLine ?? '?'}`);
-    console.log(`  Type: ${result.fileType}`);
-    if (result.docstring)
-        console.log(`  Docstring: ${result.docstring}`);
-    if (result.community !== null && result.community !== undefined)
-        console.log(`  Community: ${result.community}`);
+    catch (e) {
+        console.error(`Error: ${e.message || e}`);
+        process.exitCode = 1;
+    }
 }
 //# sourceMappingURL=explain.js.map

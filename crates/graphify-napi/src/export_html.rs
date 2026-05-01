@@ -39,13 +39,15 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
                 }
                 None => 0,
             };
-            let escaped_label = label.replace('\\', "\\\\").replace('"', "\\\"");
-            let escaped_sf = sf.replace('\\', "\\\\").replace('"', "\\\"");
-            let line_str = line.map_or("null".to_string(), |l| l.to_string());
-            nodes_json.push(format!(
-                r#"{{"id":"{}","label":"{}","group":{},"fileType":"{}","sourceFile":"{}","sourceLine":{}}}"#,
-                id, escaped_label, group, ft, escaped_sf, line_str
-            ));
+            let node_obj = serde_json::json!({
+                "id": id,
+                "label": label,
+                "group": group,
+                "fileType": ft,
+                "sourceFile": sf,
+                "sourceLine": line,
+            });
+            nodes_json.push(serde_json::to_string(&node_obj).unwrap_or_default());
         }
     }
 
@@ -63,12 +65,13 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
             .collect();
 
         for (src, tgt, rel, conf) in &rows {
-            let escaped_rel = rel.replace('\\', "\\\\").replace('"', "\\\"");
-            let escaped_conf = conf.replace('\\', "\\\\").replace('"', "\\\"");
-            edges_json.push(format!(
-                r#"{{"from":"{}","to":"{}","relation":"{}","confidence":"{}"}}"#,
-                src, tgt, escaped_rel, escaped_conf
-            ));
+            let edge_obj = serde_json::json!({
+                "from": src,
+                "to": tgt,
+                "relation": rel,
+                "confidence": conf,
+            });
+            edges_json.push(serde_json::to_string(&edge_obj).unwrap_or_default());
         }
     }
 
@@ -92,8 +95,9 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
         )
     };
 
-    let nodes_js = nodes_json.join(",\n        ");
-    let edges_js = edges_json.join(",\n        ");
+    // Escape </script to prevent XSS when embedding JSON in HTML <script> tags
+    let nodes_js = nodes_json.join(",\n        ").replace("</script", "<\\/script");
+    let edges_js = edges_json.join(",\n        ").replace("</script", "<\\/script");
 
     let html = format!(
         r##"<!DOCTYPE html>
@@ -121,7 +125,7 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
   <div id="legend"></div>
   <div id="info"><div class="label" id="infoLabel"></div><div class="meta" id="infoMeta"></div></div>
   <div id="network"></div>
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js" integrity="sha384-OrA3tQDSHkPYtkfOSPGKkXik9gAWHb39oFSi0NN3rWsrDP8mxIQJMYi13B/+lDpf" crossorigin="anonymous"></script>
   <script>
     var colors = {colors_js};
     var nodes = new vis.DataSet([
