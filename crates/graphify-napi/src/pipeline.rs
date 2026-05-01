@@ -113,6 +113,7 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
     let mut stmt = db.prepare(
         "SELECT id, label, file_type, source_file, source_line, docstring, community FROM nodes",
     )?;
+    #[allow(clippy::type_complexity)]
     let node_rows: Vec<(String, String, String, String, Option<i64>, Option<String>, Option<i64>)> =
         stmt.query_map([], |row| {
             Ok((

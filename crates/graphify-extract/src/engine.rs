@@ -125,6 +125,7 @@ fn chrono_free_timestamp() -> String {
 }
 
 /// Find the body node using body_field first, then falling back to child types.
+#[allow(clippy::manual_find)]
 fn find_body<'a>(node: &Node<'a>, cfg: &LanguageConfig) -> Option<Node<'a>> {
     if let Some(field) = cfg.body_field {
         if let Some(body) = node.child_by_field_name(field) {
@@ -145,7 +146,7 @@ fn find_body<'a>(node: &Node<'a>, cfg: &LanguageConfig) -> Option<Node<'a>> {
 fn extract_docstring(node: &Node, source: &[u8], cfg: &LanguageConfig) -> Option<String> {
     let body = find_body(node, cfg)?;
     let mut cursor = body.walk();
-    for child in body.children(&mut cursor) {
+    if let Some(child) = body.children(&mut cursor).next() {
         let kind = child.kind();
         if kind == "string" || kind == "string_literal" || kind == "expression_statement" {
             let text = node_text(&child, source);
@@ -163,8 +164,6 @@ fn extract_docstring(node: &Node, source: &[u8], cfg: &LanguageConfig) -> Option
                 return Some(cleaned.to_string());
             }
         }
-        // Stop after the first statement in the body
-        break;
     }
     None
 }
@@ -425,7 +424,7 @@ fn walk_calls<'a>(state: &mut ExtractionState<'a>, caller_id: &str, body: &Node<
 }
 
 /// Extract the callee name from a call expression.
-fn extract_callee_name<'a>(call_node: &Node, source: &'a [u8]) -> Option<String> {
+fn extract_callee_name(call_node: &Node, source: &[u8]) -> Option<String> {
     // The first child (field "function") is the callee
     let mut cursor = call_node.walk();
     let func_child = call_node.children(&mut cursor).next()?;
@@ -433,7 +432,7 @@ fn extract_callee_name<'a>(call_node: &Node, source: &'a [u8]) -> Option<String>
     let text = node_text(&func_child, source);
     // For method calls like obj.method(), take the last part
     let name = if text.contains('.') {
-        text.split('.').last().unwrap_or(text)
+        text.split('.').next_back().unwrap_or(text)
     } else {
         text
     };

@@ -22,7 +22,7 @@ pub fn generate_report(db: &Connection, analysis: &AnalysisResult) -> graphify_c
             let comm = node.community.map(|c| c.to_string()).unwrap_or_else(|| "—".into());
             report.push_str(&format!("- **{}** (degree: {}, community: {})\n", node.label, node.degree, comm));
         }
-        report.push_str("\n");
+        report.push('\n');
     }
 
     report.push_str("## Surprising Connections\n\n");
@@ -34,7 +34,7 @@ pub fn generate_report(db: &Connection, analysis: &AnalysisResult) -> graphify_c
             let tc = edge.target_community.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
             report.push_str(&format!("- {} -> {} ({}) [community {} -> {}]\n", edge.source, edge.target, edge.relation, sc, tc));
         }
-        report.push_str("\n");
+        report.push('\n');
     }
 
     report.push_str("## Suggested Questions\n\n");
