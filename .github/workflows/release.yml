@@ -43,7 +43,9 @@ jobs:
       - name: Install dependencies
         run: cd packages/graphify-cli && npm install
       - name: Build native binary
-        run: cd packages/graphify-cli && npx napi build --platform --release --target ${{ matrix.target }}
+        run: |
+          cd packages/graphify-cli
+          npx napi build --platform --release --target ${{ matrix.target }} --cargo-cwd ../../ -p graphify-napi dist
       - uses: actions/upload-artifact@v4
         with:
           name: graphify-${{ matrix.target }}
