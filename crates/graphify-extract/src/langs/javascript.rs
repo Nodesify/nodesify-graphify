@@ -6,7 +6,11 @@ pub fn config() -> &'static LanguageConfig {
         extensions: &[".js", ".jsx", ".mjs"],
         language_fn: || tree_sitter_javascript::LANGUAGE.into(),
         class_types: &["class_declaration"],
-        function_types: &["function_declaration", "generator_function_declaration", "method_definition"],
+        function_types: &[
+            "function_declaration",
+            "generator_function_declaration",
+            "method_definition",
+        ],
         import_types: &["import_statement", "import_declaration"],
         call_type: "call_expression",
         name_field: "name",

@@ -12,14 +12,26 @@ pub fn export_graphml(db: &Connection, out_path: &Path) -> graphify_core::Result
 
     // Key definitions for node attributes
     xml.push_str("  <key id=\"label\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>\n");
-    xml.push_str("  <key id=\"file_type\" for=\"node\" attr.name=\"file_type\" attr.type=\"string\"/>\n");
-    xml.push_str("  <key id=\"community\" for=\"node\" attr.name=\"community\" attr.type=\"int\"/>\n");
-    xml.push_str("  <key id=\"source_file\" for=\"node\" attr.name=\"source_file\" attr.type=\"string\"/>\n");
-    xml.push_str("  <key id=\"source_line\" for=\"node\" attr.name=\"source_line\" attr.type=\"int\"/>\n");
+    xml.push_str(
+        "  <key id=\"file_type\" for=\"node\" attr.name=\"file_type\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str(
+        "  <key id=\"community\" for=\"node\" attr.name=\"community\" attr.type=\"int\"/>\n",
+    );
+    xml.push_str(
+        "  <key id=\"source_file\" for=\"node\" attr.name=\"source_file\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str(
+        "  <key id=\"source_line\" for=\"node\" attr.name=\"source_line\" attr.type=\"int\"/>\n",
+    );
 
     // Key definitions for edge attributes
-    xml.push_str("  <key id=\"relation\" for=\"edge\" attr.name=\"relation\" attr.type=\"string\"/>\n");
-    xml.push_str("  <key id=\"confidence\" for=\"edge\" attr.name=\"confidence\" attr.type=\"string\"/>\n");
+    xml.push_str(
+        "  <key id=\"relation\" for=\"edge\" attr.name=\"relation\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str(
+        "  <key id=\"confidence\" for=\"edge\" attr.name=\"confidence\" attr.type=\"string\"/>\n",
+    );
     xml.push_str("  <key id=\"confidence_score\" for=\"edge\" attr.name=\"confidence_score\" attr.type=\"double\"/>\n");
 
     xml.push_str("  <graph id=\"G\" edgedefault=\"undirected\">\n");
@@ -51,8 +63,14 @@ pub fn export_graphml(db: &Connection, out_path: &Path) -> graphify_core::Result
             let esc_sf = escape_xml(sf);
             xml.push_str(&format!("    <node id=\"{}\">\n", esc_id));
             xml.push_str(&format!("      <data key=\"label\">{}</data>\n", esc_label));
-            xml.push_str(&format!("      <data key=\"file_type\">{}</data>\n", esc_ft));
-            xml.push_str(&format!("      <data key=\"source_file\">{}</data>\n", esc_sf));
+            xml.push_str(&format!(
+                "      <data key=\"file_type\">{}</data>\n",
+                esc_ft
+            ));
+            xml.push_str(&format!(
+                "      <data key=\"source_file\">{}</data>\n",
+                esc_sf
+            ));
             if let Some(l) = line {
                 xml.push_str(&format!("      <data key=\"source_line\">{}</data>\n", l));
             }
@@ -65,9 +83,8 @@ pub fn export_graphml(db: &Connection, out_path: &Path) -> graphify_core::Result
 
     // Edges
     {
-        let mut stmt = db.prepare(
-            "SELECT source, target, relation, confidence, confidence_score FROM edges",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT source, target, relation, confidence, confidence_score FROM edges")?;
         let rows: Vec<(String, String, String, String, Option<f64>)> = stmt
             .query_map([], |row| {
                 Ok((
@@ -90,7 +107,10 @@ pub fn export_graphml(db: &Connection, out_path: &Path) -> graphify_core::Result
                 "    <edge source=\"{}\" target=\"{}\">\n",
                 esc_src, esc_tgt
             ));
-            xml.push_str(&format!("      <data key=\"relation\">{}</data>\n", esc_rel));
+            xml.push_str(&format!(
+                "      <data key=\"relation\">{}</data>\n",
+                esc_rel
+            ));
             xml.push_str(&format!(
                 "      <data key=\"confidence\">{}</data>\n",
                 esc_conf

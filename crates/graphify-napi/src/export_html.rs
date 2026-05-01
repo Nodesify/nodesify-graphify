@@ -54,9 +54,7 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
     // Read edges
     let mut edges_json = Vec::new();
     {
-        let mut stmt = db.prepare(
-            "SELECT source, target, relation, confidence FROM edges",
-        )?;
+        let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
         let rows: Vec<(String, String, String, String)> = stmt
             .query_map([], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -96,8 +94,12 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
     };
 
     // Escape </script to prevent XSS when embedding JSON in HTML <script> tags
-    let nodes_js = nodes_json.join(",\n        ").replace("</script", "<\\/script");
-    let edges_js = edges_json.join(",\n        ").replace("</script", "<\\/script");
+    let nodes_js = nodes_json
+        .join(",\n        ")
+        .replace("</script", "<\\/script");
+    let edges_js = edges_json
+        .join(",\n        ")
+        .replace("</script", "<\\/script");
 
     let html = format!(
         r##"<!DOCTYPE html>

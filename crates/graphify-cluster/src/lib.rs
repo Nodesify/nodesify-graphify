@@ -1,9 +1,9 @@
 // graphify-cluster: label propagation clustering
 
-use std::collections::HashMap;
-use rusqlite::Connection;
-use petgraph::graph::UnGraph;
 use petgraph::graph::NodeIndex;
+use petgraph::graph::UnGraph;
+use rusqlite::Connection;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct ClusterResult {
@@ -20,10 +20,14 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
     };
 
     if node_ids.is_empty() {
-        return Ok(ClusterResult { communities: HashMap::new(), iterations: 0 });
+        return Ok(ClusterResult {
+            communities: HashMap::new(),
+            iterations: 0,
+        });
     }
 
-    let id_to_idx: HashMap<String, NodeIndex> = node_ids.iter()
+    let id_to_idx: HashMap<String, NodeIndex> = node_ids
+        .iter()
         .enumerate()
         .map(|(i, id)| (id.clone(), NodeIndex::new(i)))
         .collect();
@@ -36,8 +40,10 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
     // Load edges
     {
         let mut stmt = db.prepare("SELECT source, target FROM edges")?;
-        let edges: Vec<(String, String)> = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(|r| r.ok()).collect();
+        let edges: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
         for (src, tgt) in edges {
             if let (Some(&s), Some(&t)) = (id_to_idx.get(&src), id_to_idx.get(&tgt)) {
                 graph.add_edge(s, t, ());
@@ -63,7 +69,8 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
                 *neighbor_labels.entry(labels[neighbor.index()]).or_insert(0) += 1;
             }
 
-            let best_label = *neighbor_labels.iter()
+            let best_label = *neighbor_labels
+                .iter()
                 .max_by_key(|(_, &count)| count)
                 .map(|(label, _)| label)
                 .unwrap();
@@ -74,12 +81,17 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
             }
         }
 
-        if !changed { break; }
+        if !changed {
+            break;
+        }
     }
 
     // Write communities back to SQLite
     for (i, id) in node_ids.iter().enumerate() {
-        db.execute("UPDATE nodes SET community = ?1 WHERE id = ?2", rusqlite::params![labels[i] as i64, id])?;
+        db.execute(
+            "UPDATE nodes SET community = ?1 WHERE id = ?2",
+            rusqlite::params![labels[i] as i64, id],
+        )?;
     }
 
     let mut communities: HashMap<u32, usize> = HashMap::new();
@@ -87,7 +99,10 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
         *communities.entry(label).or_insert(0) += 1;
     }
 
-    Ok(ClusterResult { communities, iterations })
+    Ok(ClusterResult {
+        communities,
+        iterations,
+    })
 }
 
 #[cfg(test)]
@@ -114,7 +129,11 @@ mod tests {
         let result = cluster(&db).unwrap();
         assert!(result.communities.len() >= 1);
         assert!(result.iterations > 0);
-        let community: i64 = db.query_row("SELECT community FROM nodes WHERE id = 'a'", [], |r| r.get(0)).unwrap();
+        let community: i64 = db
+            .query_row("SELECT community FROM nodes WHERE id = 'a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert!(community >= 0);
     }
 
@@ -124,7 +143,11 @@ mod tests {
         seed_graph(&db);
         let result = cluster(&db).unwrap();
         // Label propagation on a chain can produce 1-2 communities depending on iteration order
-        assert!(result.communities.len() <= 2, "expected at most 2 communities, got {}", result.communities.len());
+        assert!(
+            result.communities.len() <= 2,
+            "expected at most 2 communities, got {}",
+            result.communities.len()
+        );
     }
 
     #[test]

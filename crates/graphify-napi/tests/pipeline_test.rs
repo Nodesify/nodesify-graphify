@@ -27,9 +27,18 @@ fn full_pipeline_on_python_fixture() {
     let root = tmp.path();
     let result = graphify_napi::pipeline::run_pipeline(root).unwrap();
 
-    assert!(result.build_result.nodes_added > 0, "should extract nodes from Python fixture");
-    assert!(result.build_result.edges_added > 0, "should extract edges from Python fixture");
-    assert!(!result.analysis.god_nodes.is_empty(), "should find god nodes");
+    assert!(
+        result.build_result.nodes_added > 0,
+        "should extract nodes from Python fixture"
+    );
+    assert!(
+        result.build_result.edges_added > 0,
+        "should extract edges from Python fixture"
+    );
+    assert!(
+        !result.analysis.god_nodes.is_empty(),
+        "should find god nodes"
+    );
     assert!(result.report.contains("# Graph Report"));
 
     assert!(root.join(".graphify/db.sqlite").exists());
@@ -61,7 +70,10 @@ fn incremental_update_adds_no_duplicate_nodes() {
     assert!(r1.build_result.nodes_added > 0);
 
     let r2 = graphify_napi::pipeline::run_pipeline(root).unwrap();
-    assert_eq!(r2.build_result.nodes_added, 0, "second run on unchanged files should add 0 nodes");
+    assert_eq!(
+        r2.build_result.nodes_added, 0,
+        "second run on unchanged files should add 0 nodes"
+    );
 }
 
 #[test]

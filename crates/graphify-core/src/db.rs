@@ -1,5 +1,5 @@
-use rusqlite::Connection;
 use crate::error::Result;
+use rusqlite::Connection;
 
 const _CURRENT_SCHEMA_VERSION: i64 = 1;
 
@@ -90,10 +90,17 @@ fn run_migrations(conn: &Connection) -> Result<()> {
 
 pub fn open_db(path: &std::path::Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
+    )?;
     let is_new = conn
-        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |row| row.get::<_, i64>(0))
-        .unwrap_or(0) == 0;
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        == 0;
     if is_new {
         conn.execute_batch(SCHEMA_V1)?;
     } else {
@@ -156,7 +163,11 @@ mod tests {
         ).unwrap();
 
         let label: String = conn
-            .query_row("SELECT label FROM nodes WHERE id = ?1", rusqlite::params!["main.py::Foo"], |row| row.get(0))
+            .query_row(
+                "SELECT label FROM nodes WHERE id = ?1",
+                rusqlite::params!["main.py::Foo"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(label, "Foo");
     }

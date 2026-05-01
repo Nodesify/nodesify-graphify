@@ -100,11 +100,7 @@ fn derive_filename(url: &str) -> String {
         return "index.html".into();
     }
 
-    let last_segment = path_part
-        .rsplit('/')
-        .next()
-        .unwrap_or("index")
-        .to_string();
+    let last_segment = path_part.rsplit('/').next().unwrap_or("index").to_string();
 
     if last_segment.is_empty() || last_segment == "/" {
         "index.html".into()
@@ -116,9 +112,7 @@ fn derive_filename(url: &str) -> String {
 /// Check if the URL points to a PDF.
 fn is_pdf_url(url: &str) -> bool {
     let lower = url.to_lowercase();
-    lower.ends_with(".pdf")
-        || lower.contains("arxiv.org/pdf/")
-        || lower.contains("arxiv.org/abs/")
+    lower.ends_with(".pdf") || lower.contains("arxiv.org/pdf/") || lower.contains("arxiv.org/abs/")
 }
 
 /// Heuristic check: does the content look like HTML?
@@ -248,7 +242,10 @@ mod tests {
 
     #[test]
     fn derive_filename_basic() {
-        assert_eq!(derive_filename("https://example.com/page.html"), "page.html");
+        assert_eq!(
+            derive_filename("https://example.com/page.html"),
+            "page.html"
+        );
         assert_eq!(derive_filename("https://example.com/doc.pdf"), "doc.pdf");
     }
 
@@ -336,8 +333,14 @@ mod tests {
 
     #[test]
     fn extract_host_works() {
-        assert_eq!(extract_host("https://example.com/path"), Some("example.com".into()));
-        assert_eq!(extract_host("http://localhost:3000/api"), Some("localhost".into()));
+        assert_eq!(
+            extract_host("https://example.com/path"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            extract_host("http://localhost:3000/api"),
+            Some("localhost".into())
+        );
         assert_eq!(extract_host("noscheme"), None);
     }
 }

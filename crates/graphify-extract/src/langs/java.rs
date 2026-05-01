@@ -5,7 +5,11 @@ pub fn config() -> &'static LanguageConfig {
         name: "Java",
         extensions: &[".java"],
         language_fn: || tree_sitter_java::LANGUAGE.into(),
-        class_types: &["class_declaration", "interface_declaration", "enum_declaration"],
+        class_types: &[
+            "class_declaration",
+            "interface_declaration",
+            "enum_declaration",
+        ],
         function_types: &["method_declaration", "constructor_declaration"],
         import_types: &["import_declaration"],
         call_type: "method_invocation",

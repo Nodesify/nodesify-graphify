@@ -5,7 +5,12 @@ pub fn config() -> &'static LanguageConfig {
         name: "Swift",
         extensions: &[".swift"],
         language_fn: || tree_sitter_swift::LANGUAGE.into(),
-        class_types: &["class_declaration", "struct_declaration", "enum_declaration", "protocol_declaration"],
+        class_types: &[
+            "class_declaration",
+            "struct_declaration",
+            "enum_declaration",
+            "protocol_declaration",
+        ],
         function_types: &["function_declaration"],
         import_types: &["import_declaration"],
         call_type: "call_expression",
