@@ -4,18 +4,27 @@
   "description": "Turn any folder into a queryable knowledge graph",
   "main": "dist/index.js",
   "bin": {
-    "graphify": "./dist/index.js"
+    "nodesify-graphify": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "napi:build": "napi build --platform --release dist",
+    "napi:dev": "napi build --platform dist",
+    "napi:artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js || tsx src/__tests__/cli.test.ts"
   },
   "dependencies": {
     "commander": "^12"
   },
   "devDependencies": {
     "typescript": "^5",
-    "@types/node": "^22"
+    "@types/node": "^22",
+    "@napi-rs/cli": "^2"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "napi": {
     "name": "graphify",
