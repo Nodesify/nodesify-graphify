@@ -37,10 +37,13 @@ jobs:
         if: matrix.setup != ''
         run: ${{ matrix.setup }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build napi artifacts
-        uses: napi-rs/napi-rs/action/build@main
+      - uses: actions/setup-node@v4
         with:
-          target: ${{ matrix.target }}
+          node-version: '22'
+      - name: Install dependencies
+        run: cd packages/graphify-cli && npm install
+      - name: Build native binary
+        run: cd packages/graphify-cli && npx napi build --platform --release --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: graphify-${{ matrix.target }}
