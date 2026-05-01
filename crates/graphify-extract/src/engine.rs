@@ -7,16 +7,26 @@ use tree_sitter::{Node, Parser};
 use crate::langs::{self, LanguageConfig};
 use crate::schema::{Extraction, ExtractedEdge, ExtractedNode};
 use graphify_core::GraphifyError;
+use graphify_paths::normalize;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Join parts with `_`, keep only lowercase alphanumeric and underscores.
-fn make_id(parts: &[&str]) -> String {
+/// Join parts with `::` for hierarchical node IDs (e.g. "main.py::Greeter::greet()").
+/// Preserves original casing. Sanitizes only path separators and whitespace.
+fn make_node_id(parts: &[&str]) -> String {
     parts
-        .join("_")
-        .to_lowercase()
+        .iter()
+        .map(|p| p.trim().replace('\\', "/").replace('/', "_"))
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+/// Create a short target ID for cross-file references (imports, calls).
+/// Normalizes to lowercase alphanumeric + underscores for fuzzy matching.
+fn make_target_id(name: &str) -> String {
+    name.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
         .collect::<String>()
@@ -58,13 +68,13 @@ fn file_hash(path: &Path) -> Result<String, GraphifyError> {
 
 /// Check the extraction_cache table. Returns cached Extraction if hit.
 fn check_cache(db: &Connection, path: &Path, hash: &str) -> Option<Extraction> {
-    let path_str = path.to_string_lossy();
+    let path_str = normalize(path);
     let mut stmt = db
         .prepare(
             "SELECT language, nodes, edges FROM extraction_cache WHERE file_path = ?1 AND content_hash = ?2",
         )
         .ok()?;
-    stmt.query_row(rusqlite::params![path_str.as_ref(), hash], |row| {
+    stmt.query_row(rusqlite::params![&path_str, hash], |row| {
         let language: String = row.get(0)?;
         let nodes_json: String = row.get(1)?;
         let edges_json: String = row.get(2)?;
@@ -85,7 +95,7 @@ fn check_cache(db: &Connection, path: &Path, hash: &str) -> Option<Extraction> {
 
 /// Save extraction result to the cache table.
 fn save_cache(db: &Connection, path: &Path, hash: &str, extraction: &Extraction) {
-    let path_str = path.to_string_lossy();
+    let path_str = normalize(path);
     let nodes_json = serde_json::to_string(&extraction.nodes).unwrap_or_default();
     let edges_json = serde_json::to_string(&extraction.edges).unwrap_or_default();
     let now = chrono_free_timestamp();
@@ -93,7 +103,7 @@ fn save_cache(db: &Connection, path: &Path, hash: &str, extraction: &Extraction)
     let _ = db.execute(
         "INSERT OR REPLACE INTO extraction_cache (file_path, content_hash, language, nodes, edges, extracted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
-            path_str.as_ref(),
+            &path_str,
             hash,
             extraction.language,
             nodes_json,
@@ -181,7 +191,7 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
         let import_text = node_text(node, state.source);
         let module_name = extract_import_module(import_text, kind);
         if let Some(mod_name) = module_name {
-            let target_id = make_id(&[&mod_name]);
+            let target_id = make_target_id(&mod_name);
             state.edges.push(ExtractedEdge {
                 source: state.file_id.clone(),
                 target: target_id,
@@ -205,7 +215,7 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
         let name_node = node.child_by_field_name(state.cfg.name_field);
         if let Some(name_node) = name_node {
             let name = node_text(&name_node, state.source).to_string();
-            let class_id = make_id(&[&state.file_id, &name]);
+            let class_id = make_node_id(&[&state.file_id, &name]);
             let docstring = extract_docstring(node, state.source, state.cfg);
 
             state.nodes.push(ExtractedNode {
@@ -245,7 +255,7 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
             let name = node_text(&name_node, state.source).to_string();
             let func_label = format!("{}()", name);
             let parent_id = state.current_class_id.as_deref().unwrap_or(&state.file_id);
-            let func_id = make_id(&[parent_id, &name]);
+            let func_id = make_node_id(&[parent_id, &name]);
 
             let docstring = extract_docstring(node, state.source, state.cfg);
 
@@ -394,7 +404,7 @@ fn walk_calls<'a>(state: &mut ExtractionState<'a>, caller_id: &str, body: &Node<
     if kind == state.cfg.call_type {
         let callee_name = extract_callee_name(body, state.source);
         if let Some(name) = callee_name {
-            let callee_id = make_id(&[&name]);
+            let callee_id = make_target_id(&name);
             state.edges.push(ExtractedEdge {
                 source: caller_id.to_string(),
                 target: callee_id,
@@ -431,6 +441,88 @@ fn extract_callee_name<'a>(call_node: &Node, source: &'a [u8]) -> Option<String>
 }
 
 // ---------------------------------------------------------------------------
+// Rationale comment extraction
+// ---------------------------------------------------------------------------
+
+const RATIONALE_TAGS: &[&str] = &["NOTE", "WHY", "HACK", "IMPORTANT", "TODO", "FIXME"];
+
+fn extract_rationale(state: &mut ExtractionState, source: &[u8]) {
+    let comment_prefix = if state.cfg.name == "Python" { "#" } else { "//" };
+    let text = match std::str::from_utf8(source) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // Build a sorted list of (line, node_id) to find nearest parent above each rationale
+    let mut nodes_by_line: Vec<(u32, String)> = state.nodes.iter()
+        .filter_map(|n| n.source_line.map(|l| (l, n.id.clone())))
+        .collect();
+    nodes_by_line.sort_by_key(|(l, _)| *l);
+
+    for (lineno, line_text) in text.lines().enumerate() {
+        let stripped = line_text.trim();
+        let tag = match find_rationale_tag(stripped, comment_prefix) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let comment_text = stripped
+            .trim_start_matches(comment_prefix)
+            .trim_start_matches(&format!("{}:", tag))
+            .trim();
+
+        if comment_text.is_empty() {
+            continue;
+        }
+
+        let line_num = lineno as u32 + 1;
+        let rid = make_node_id(&[&state.file_id, "rationale", &line_num.to_string()]);
+
+        // Find nearest parent node above this line
+        let parent_id = nodes_by_line.iter()
+            .rev()
+            .find(|(l, _)| *l < line_num)
+            .map(|(_, id)| id.clone())
+            .unwrap_or_else(|| state.file_id.clone());
+
+        let label = if comment_text.len() > 80 {
+            format!("{}: {}", tag, &comment_text[..80])
+        } else {
+            format!("{}: {}", tag, comment_text)
+        };
+
+        state.nodes.push(ExtractedNode {
+            id: rid.clone(),
+            label,
+            source_file: state.file_path.clone(),
+            source_line: Some(line_num),
+            docstring: None,
+            node_type: "rationale".to_string(),
+        });
+
+        state.edges.push(ExtractedEdge {
+            source: rid,
+            target: parent_id,
+            relation: "rationale_for".to_string(),
+            confidence: "EXTRACTED".to_string(),
+            confidence_score: Some(1.0),
+            source_file: state.file_path.clone(),
+            source_line: Some(line_num),
+        });
+    }
+}
+
+fn find_rationale_tag(line: &str, comment_prefix: &str) -> Option<&'static str> {
+    for tag in RATIONALE_TAGS {
+        let pattern = format!("{} {}:", comment_prefix, tag);
+        if line.starts_with(&pattern) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Single-file extraction
 // ---------------------------------------------------------------------------
 
@@ -456,7 +548,7 @@ fn extract_single(path: &Path, cfg: &LanguageConfig) -> Result<Extraction, Graph
 
     let root = tree.root_node();
     let fid = file_stem(path);
-    let file_id = make_id(&[&fid]);
+    let file_id = make_node_id(&[&fid]);
 
     let mut state = ExtractionState {
         cfg,
@@ -488,11 +580,124 @@ fn extract_single(path: &Path, cfg: &LanguageConfig) -> Result<Extraction, Graph
         walk_structural(&mut state, &child);
     }
 
+    // Post-pass: extract rationale comments
+    extract_rationale(&mut state, &source);
+
     Ok(Extraction {
         file_path: path.to_path_buf(),
         language: cfg.name.to_string(),
         nodes: state.nodes,
         edges: state.edges,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Markdown extraction (plain-text, no tree-sitter)
+// ---------------------------------------------------------------------------
+
+fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
+    let content = std::fs::read_to_string(path)?;
+    let fid = file_stem(path);
+    let file_id = make_node_id(&[&fid]);
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    // Document node
+    nodes.push(ExtractedNode {
+        id: file_id.clone(),
+        label: path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
+        source_file: path.to_path_buf(),
+        source_line: None,
+        docstring: None,
+        node_type: "document".to_string(),
+    });
+
+    let heading_re = regex::Regex::new(r"^(#{1,6})\s+(.+)$").unwrap();
+    let link_re = regex::Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").unwrap();
+
+    // Track heading nesting: stack of (level, id)
+    let mut heading_stack: Vec<(usize, String)> = Vec::new();
+
+    for (line_no, line) in content.lines().enumerate() {
+        // Parse headings
+        if let Some(caps) = heading_re.captures(line) {
+            let hashes = caps.get(1).unwrap().as_str().len();
+            let title = caps.get(2).unwrap().as_str().trim().to_string();
+            let level = hashes;
+            let slug = make_target_id(&title);
+            let section_id = make_node_id(&[&fid, &slug]);
+
+            nodes.push(ExtractedNode {
+                id: section_id.clone(),
+                label: title,
+                source_file: path.to_path_buf(),
+                source_line: Some(line_no as u32 + 1),
+                docstring: None,
+                node_type: "section".to_string(),
+            });
+
+            // Pop stack until we find a parent with lower level
+            while let Some((parent_level, _)) = heading_stack.last() {
+                if *parent_level < level { break; }
+                heading_stack.pop();
+            }
+
+            // Edge: parent heading → this heading, or file → this heading
+            let parent_id = heading_stack.last()
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| file_id.clone());
+
+            edges.push(ExtractedEdge {
+                source: parent_id,
+                target: section_id.clone(),
+                relation: "contains".to_string(),
+                confidence: "EXTRACTED".to_string(),
+                confidence_score: Some(1.0),
+                source_file: path.to_path_buf(),
+                source_line: Some(line_no as u32 + 1),
+            });
+
+            heading_stack.push((level, section_id));
+        }
+
+        // Parse links (only local .md references)
+        for cap in link_re.captures_iter(line) {
+            let link_target = cap.get(2).unwrap().as_str();
+            // Only reference local markdown files
+            if link_target.starts_with("http") || link_target.starts_with('#') {
+                continue;
+            }
+            let target_path = if link_target.starts_with('/') {
+                link_target.to_string()
+            } else {
+                // Relative path — just use the file stem as target
+                link_target.to_string()
+            };
+            let target_stem = std::path::Path::new(&target_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            if !target_stem.is_empty() {
+                let target_id = make_target_id(target_stem);
+                edges.push(ExtractedEdge {
+                    source: file_id.clone(),
+                    target: target_id,
+                    relation: "references".to_string(),
+                    confidence: "EXTRACTED".to_string(),
+                    confidence_score: Some(0.8),
+                    source_file: path.to_path_buf(),
+                    source_line: Some(line_no as u32 + 1),
+                });
+            }
+        }
+    }
+
+    Ok(Extraction {
+        file_path: path.to_path_buf(),
+        language: "markdown".to_string(),
+        nodes,
+        edges,
     })
 }
 
@@ -509,12 +714,24 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
+        let hash = file_hash(file_path)?;
+
+        // Markdown: plain-text extraction (no tree-sitter)
+        if ext == "md" || ext == "mdx" {
+            if let Some(cached) = check_cache(db, file_path, &hash) {
+                results.push(cached);
+                continue;
+            }
+            let extraction = extract_markdown(file_path)?;
+            save_cache(db, file_path, &hash, &extraction);
+            results.push(extraction);
+            continue;
+        }
+
         let cfg = match langs::get_language_for_extension(ext) {
             Some(c) => c,
             None => continue,
         };
-
-        let hash = file_hash(file_path)?;
 
         // Check cache
         if let Some(cached) = check_cache(db, file_path, &hash) {
@@ -531,7 +748,48 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
         results.push(extraction);
     }
 
+    // Cross-file resolution: try to match call/import targets to known node IDs
+    resolve_cross_file_references(&mut results);
+
     Ok(results)
+}
+
+/// Build a lookup of all known node IDs (lowercased for matching) and try to
+/// resolve INFERRED call edges to real node IDs. This turns stub references
+/// into proper cross-file edges when a match is found.
+fn resolve_cross_file_references(results: &mut [Extraction]) {
+    // Collect all known node IDs and their labels
+    let mut known_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for ext in results.iter() {
+        for node in &ext.nodes {
+            // Map: lowercase label -> actual node ID
+            known_ids.insert(node.label.to_lowercase(), node.id.clone());
+            // Also map by the last segment of the ID (e.g. "greet" from "main::Greeter::greet")
+            let parts: Vec<&str> = node.id.split("::").collect();
+            if let Some(last) = parts.last() {
+                let lower = last.to_lowercase().trim_end_matches("()").to_string();
+                known_ids.entry(lower).or_insert_with(|| node.id.clone());
+            }
+        }
+    }
+
+    // Resolve edges
+    for ext in results.iter_mut() {
+        for edge in ext.edges.iter_mut() {
+            if edge.relation == "calls" || edge.relation == "imports" {
+                let target_lower = edge.target.to_lowercase();
+                if let Some(real_id) = known_ids.get(&target_lower) {
+                    if real_id != &edge.target {
+                        edge.target = real_id.clone();
+                        if edge.confidence == "INFERRED" {
+                            edge.confidence = "EXTRACTED".to_string();
+                            edge.confidence_score = Some(0.9);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -622,5 +880,69 @@ mod tests {
         let r1 = extract(&[py.clone()], &db).unwrap();
         let r2 = extract(&[py], &db).unwrap();
         assert_eq!(r1[0].nodes.len(), r2[0].nodes.len());
+    }
+
+    #[test]
+    fn extract_markdown_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let md = dir.path().join("guide.md");
+        fs::write(
+            &md,
+            "# Getting Started\n\nIntro text.\n\n## Installation\n\nSee [setup guide](setup.md) for details.\n\n### Step 1\n\nDo the thing.\n\n## Usage\n\nHow to use it.\n",
+        ).unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[md], &db).unwrap();
+        let ext = &results[0];
+        assert_eq!(ext.language, "markdown");
+
+        // Document node + 4 section headings (Getting Started, Installation, Step 1, Usage)
+        assert!(ext.nodes.len() >= 5, "expected >= 5 nodes, got {}", ext.nodes.len());
+        assert!(ext.nodes.iter().any(|n| n.node_type == "document"), "missing document node");
+        assert!(ext.nodes.iter().any(|n| n.label == "Getting Started"), "missing h1");
+        assert!(ext.nodes.iter().any(|n| n.label == "Installation"), "missing h2");
+        assert!(ext.nodes.iter().any(|n| n.label == "Step 1"), "missing h3");
+        assert!(ext.nodes.iter().any(|n| n.label == "Usage"), "missing h2");
+
+        // contains edges (doc → headings, parent → child)
+        let contains: Vec<_> = ext.edges.iter().filter(|e| e.relation == "contains").collect();
+        assert!(contains.len() >= 4, "expected >= 4 contains edges, got {}", contains.len());
+
+        // references edge to setup.md
+        assert!(
+            ext.edges.iter().any(|e| e.relation == "references" && e.target.contains("setup")),
+            "missing references edge to setup.md"
+        );
+    }
+
+    #[test]
+    fn extract_rationale_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let py = dir.path().join("main.py");
+        fs::write(
+            &py,
+            "\ndef process(data):\n    # WHY: We need to normalize because upstream sends raw bytes\n    result = normalize(data)\n    # HACK: Temporary workaround for API bug\n    return result\n\nclass Handler:\n    # NOTE: This is not thread-safe\n    def handle(self):\n        pass\n",
+        ).unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[py], &db).unwrap();
+        let ext = &results[0];
+
+        let rationale_nodes: Vec<_> = ext.nodes.iter().filter(|n| n.node_type == "rationale").collect();
+        assert!(rationale_nodes.len() >= 3, "expected >= 3 rationale nodes, got {}", rationale_nodes.len());
+
+        assert!(
+            rationale_nodes.iter().any(|n| n.label.contains("WHY")),
+            "missing WHY rationale"
+        );
+        assert!(
+            rationale_nodes.iter().any(|n| n.label.contains("HACK")),
+            "missing HACK rationale"
+        );
+        assert!(
+            rationale_nodes.iter().any(|n| n.label.contains("NOTE")),
+            "missing NOTE rationale"
+        );
+
+        let rationale_edges: Vec<_> = ext.edges.iter().filter(|e| e.relation == "rationale_for").collect();
+        assert!(rationale_edges.len() >= 3, "expected >= 3 rationale_for edges, got {}", rationale_edges.len());
     }
 }
