@@ -21,7 +21,7 @@
     "napi:dev": "napi build --platform dist",
     "napi:artifacts": "napi artifacts",
     "prepublishOnly": "napi prepublish -t npm",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js || tsx src/__tests__/cli.test.ts"
+    "test": "npx tsx src/__tests__/cli.test.ts"
   },
   "keywords": [
     "knowledge-graph",
@@ -43,6 +43,7 @@
     "commander": "^12"
   },
   "devDependencies": {
+    "tsx": "^4",
     "typescript": "^5",
     "@types/node": "^22",
     "@napi-rs/cli": "^2"
