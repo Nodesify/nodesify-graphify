@@ -91,6 +91,8 @@ jobs:
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
       - name: Upgrade npm for OIDC
-        run: npm install -g npm@latest
-      - name: Publish
+        run: corepack enable && corepack prepare npm@latest --activate
+      - name: Prepare packages
         run: cd packages/graphify-cli && npx napi prepublish -t npm
+      - name: Publish
+        run: cd packages/graphify-cli && npm publish --provenance --access public
