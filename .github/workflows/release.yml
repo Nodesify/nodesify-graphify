@@ -48,7 +48,7 @@ jobs:
           echo '[target.${{ matrix.target }}]' >> .cargo/config.toml
           echo 'linker = "${{ matrix.linker }}"' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: Install dependencies
@@ -76,7 +76,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -105,7 +105,9 @@ jobs:
         with:
           generate_release_notes: true
       - name: Upgrade npm for OIDC
-        run: npm install -g npm@11 --force
+        run: |
+          corepack enable
+          corepack prepare npm@11 --activate
       - name: Publish main package
         run: cd packages/graphify-cli && npm publish --provenance --access public
       - name: Publish platform packages
