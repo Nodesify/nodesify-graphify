@@ -40,8 +40,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ hashFiles('**/Cargo.lock') }}
+      - name: Install dependencies
+        run: cd packages/graphify-cli && npm install
       - name: Build native module
-        run: cd packages/graphify-cli && npm install && npm run napi:build
+        env:
+          NAPI_RS_CLI_VERSION: '2.18.4'
+        run: cargo build --release -p graphify-napi
+      - name: Copy native module
+        shell: bash
+        run: |
+          mkdir -p packages/graphify-cli/dist
+          for lib in target/release/libgraphify_napi.so target/release/libgraphify_napi.dylib target/release/graphify_napi.dll; do
+            if [ -f "$lib" ]; then
+              cp "$lib" packages/graphify-cli/dist/graphify.node
+              break
+            fi
+          done
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
       - name: Run CLI tests
