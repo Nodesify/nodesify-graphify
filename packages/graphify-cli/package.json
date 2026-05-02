@@ -1,6 +1,6 @@
 {
   "name": "@nodesify/graphify",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Turn any folder into a queryable knowledge graph",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -63,11 +63,11 @@
     }
   },
   "optionalDependencies": {
-    "@nodesify/graphify-win32-x64-msvc": "0.1.1",
-    "@nodesify/graphify-darwin-x64": "0.1.1",
-    "@nodesify/graphify-linux-x64-gnu": "0.1.1",
-    "@nodesify/graphify-darwin-arm64": "0.1.1",
-    "@nodesify/graphify-linux-arm64-gnu": "0.1.1",
-    "@nodesify/graphify-linux-x64-musl": "0.1.1"
+    "@nodesify/graphify-win32-x64-msvc": "0.1.2",
+    "@nodesify/graphify-darwin-x64": "0.1.2",
+    "@nodesify/graphify-linux-x64-gnu": "0.1.2",
+    "@nodesify/graphify-darwin-arm64": "0.1.2",
+    "@nodesify/graphify-linux-arm64-gnu": "0.1.2",
+    "@nodesify/graphify-linux-x64-musl": "0.1.2"
   }
 }

@@ -36,12 +36,13 @@ jobs:
             target: aarch64-apple-darwin
             ext: dylib
             lib: libgraphify_napi.dylib
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             ext: dylib
             lib: libgraphify_napi.dylib
+            rustflags: -C target-cpu=x86-64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -75,7 +76,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
