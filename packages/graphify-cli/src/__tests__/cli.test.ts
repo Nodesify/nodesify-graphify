@@ -149,47 +149,46 @@ if (exportCmd) {
 
 // Test 4: Parse "run" command with path argument
 try {
-  program.parse(['node', 'test', 'run', '/tmp/project'], { from: 'user' });
+  program.parse(['run', '/tmp/project'], { from: 'user' });
   assert(true, 'run command parses with path argument');
 } catch (e: any) {
-  // commander may throw if action is empty but args parse correctly
-  assert(!e.message.includes('unknown command'), 'run command should parse without unknown command error');
+  assert(e.exitCode === 0, 'run command should parse without error');
 }
 
 // Test 5: Parse "export" command with --format html
 try {
   const p2 = createProgram();
-  p2.parse(['node', 'test', 'export', '--format', 'html', '--out', 'graph.html'], { from: 'user' });
+  p2.parse(['export', '--format', 'html', '--out', 'graph.html'], { from: 'user' });
   assert(true, 'export --format html parses correctly');
 } catch (e: any) {
-  assert(!e.message.includes('unknown option'), 'export --format should be a valid option');
+  assert(e.exitCode === 0, 'export --format should parse without error');
 }
 
 // Test 6: Parse "history" command with --limit
 try {
   const p3 = createProgram();
-  p3.parse(['node', 'test', 'history', '--limit', '5', '--graph', '.'], { from: 'user' });
+  p3.parse(['history', '--limit', '5', '--graph', '.'], { from: 'user' });
   assert(true, 'history --limit parses correctly');
 } catch (e: any) {
-  assert(!e.message.includes('unknown option'), 'history --limit should be a valid option');
+  assert(e.exitCode === 0, 'history --limit should parse without error');
 }
 
 // Test 7: Parse "merge" command with three arguments
 try {
   const p4 = createProgram();
-  p4.parse(['node', 'test', 'merge', '/a', '/b', '/out'], { from: 'user' });
+  p4.parse(['merge', '/a', '/b', '/out'], { from: 'user' });
   assert(true, 'merge command parses with three path arguments');
 } catch (e: any) {
-  assert(!e.message.includes('unknown command'), 'merge command should parse without error');
+  assert(e.exitCode === 0, 'merge command should parse without error');
 }
 
 // Test 8: Parse "diff" command with two arguments
 try {
   const p5 = createProgram();
-  p5.parse(['node', 'test', 'diff', '/a', '/b'], { from: 'user' });
+  p5.parse(['diff', '/a', '/b'], { from: 'user' });
   assert(true, 'diff command parses with two path arguments');
 } catch (e: any) {
-  assert(!e.message.includes('unknown command'), 'diff command should parse without error');
+  assert(e.exitCode === 0, 'diff command should parse without error');
 }
 
 // Test 9: Total command count

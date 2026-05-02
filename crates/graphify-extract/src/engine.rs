@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Parser};
 
 use crate::langs::{self, LanguageConfig};
-use crate::schema::{Extraction, ExtractedEdge, ExtractedNode};
+use crate::schema::{ExtractedEdge, ExtractedNode, Extraction};
 use graphify_core::GraphifyError;
 use graphify_paths::normalize;
 
@@ -28,7 +28,13 @@ fn make_node_id(parts: &[&str]) -> String {
 fn make_target_id(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim_end_matches('_')
         .to_string()
@@ -446,14 +452,20 @@ fn extract_callee_name(call_node: &Node, source: &[u8]) -> Option<String> {
 const RATIONALE_TAGS: &[&str] = &["NOTE", "WHY", "HACK", "IMPORTANT", "TODO", "FIXME"];
 
 fn extract_rationale(state: &mut ExtractionState, source: &[u8]) {
-    let comment_prefix = if state.cfg.name == "Python" { "#" } else { "//" };
+    let comment_prefix = if state.cfg.name == "Python" {
+        "#"
+    } else {
+        "//"
+    };
     let text = match std::str::from_utf8(source) {
         Ok(t) => t,
         Err(_) => return,
     };
 
     // Build a sorted list of (line, node_id) to find nearest parent above each rationale
-    let mut nodes_by_line: Vec<(u32, String)> = state.nodes.iter()
+    let mut nodes_by_line: Vec<(u32, String)> = state
+        .nodes
+        .iter()
         .filter_map(|n| n.source_line.map(|l| (l, n.id.clone())))
         .collect();
     nodes_by_line.sort_by_key(|(l, _)| *l);
@@ -478,7 +490,8 @@ fn extract_rationale(state: &mut ExtractionState, source: &[u8]) {
         let rid = make_node_id(&[&state.file_id, "rationale", &line_num.to_string()]);
 
         // Find nearest parent node above this line
-        let parent_id = nodes_by_line.iter()
+        let parent_id = nodes_by_line
+            .iter()
             .rev()
             .find(|(l, _)| *l < line_num)
             .map(|(_, id)| id.clone())
@@ -605,7 +618,11 @@ fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
     // Document node
     nodes.push(ExtractedNode {
         id: file_id.clone(),
-        label: path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
+        label: path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
         source_file: path.to_path_buf(),
         source_line: None,
         docstring: None,
@@ -638,12 +655,15 @@ fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
 
             // Pop stack until we find a parent with lower level
             while let Some((parent_level, _)) = heading_stack.last() {
-                if *parent_level < level { break; }
+                if *parent_level < level {
+                    break;
+                }
                 heading_stack.pop();
             }
 
             // Edge: parent heading → this heading, or file → this heading
-            let parent_id = heading_stack.last()
+            let parent_id = heading_stack
+                .last()
                 .map(|(_, id)| id.clone())
                 .unwrap_or_else(|| file_id.clone());
 
@@ -708,10 +728,7 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
     let mut results = Vec::new();
 
     for file_path in files {
-        let ext = file_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let hash = file_hash(file_path)?;
 
@@ -895,20 +912,43 @@ mod tests {
         assert_eq!(ext.language, "markdown");
 
         // Document node + 4 section headings (Getting Started, Installation, Step 1, Usage)
-        assert!(ext.nodes.len() >= 5, "expected >= 5 nodes, got {}", ext.nodes.len());
-        assert!(ext.nodes.iter().any(|n| n.node_type == "document"), "missing document node");
-        assert!(ext.nodes.iter().any(|n| n.label == "Getting Started"), "missing h1");
-        assert!(ext.nodes.iter().any(|n| n.label == "Installation"), "missing h2");
+        assert!(
+            ext.nodes.len() >= 5,
+            "expected >= 5 nodes, got {}",
+            ext.nodes.len()
+        );
+        assert!(
+            ext.nodes.iter().any(|n| n.node_type == "document"),
+            "missing document node"
+        );
+        assert!(
+            ext.nodes.iter().any(|n| n.label == "Getting Started"),
+            "missing h1"
+        );
+        assert!(
+            ext.nodes.iter().any(|n| n.label == "Installation"),
+            "missing h2"
+        );
         assert!(ext.nodes.iter().any(|n| n.label == "Step 1"), "missing h3");
         assert!(ext.nodes.iter().any(|n| n.label == "Usage"), "missing h2");
 
         // contains edges (doc → headings, parent → child)
-        let contains: Vec<_> = ext.edges.iter().filter(|e| e.relation == "contains").collect();
-        assert!(contains.len() >= 4, "expected >= 4 contains edges, got {}", contains.len());
+        let contains: Vec<_> = ext
+            .edges
+            .iter()
+            .filter(|e| e.relation == "contains")
+            .collect();
+        assert!(
+            contains.len() >= 4,
+            "expected >= 4 contains edges, got {}",
+            contains.len()
+        );
 
         // references edge to setup.md
         assert!(
-            ext.edges.iter().any(|e| e.relation == "references" && e.target.contains("setup")),
+            ext.edges
+                .iter()
+                .any(|e| e.relation == "references" && e.target.contains("setup")),
             "missing references edge to setup.md"
         );
     }
@@ -925,8 +965,16 @@ mod tests {
         let results = extract(&[py], &db).unwrap();
         let ext = &results[0];
 
-        let rationale_nodes: Vec<_> = ext.nodes.iter().filter(|n| n.node_type == "rationale").collect();
-        assert!(rationale_nodes.len() >= 3, "expected >= 3 rationale nodes, got {}", rationale_nodes.len());
+        let rationale_nodes: Vec<_> = ext
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == "rationale")
+            .collect();
+        assert!(
+            rationale_nodes.len() >= 3,
+            "expected >= 3 rationale nodes, got {}",
+            rationale_nodes.len()
+        );
 
         assert!(
             rationale_nodes.iter().any(|n| n.label.contains("WHY")),
@@ -941,7 +989,15 @@ mod tests {
             "missing NOTE rationale"
         );
 
-        let rationale_edges: Vec<_> = ext.edges.iter().filter(|e| e.relation == "rationale_for").collect();
-        assert!(rationale_edges.len() >= 3, "expected >= 3 rationale_for edges, got {}", rationale_edges.len());
+        let rationale_edges: Vec<_> = ext
+            .edges
+            .iter()
+            .filter(|e| e.relation == "rationale_for")
+            .collect();
+        assert!(
+            rationale_edges.len() >= 3,
+            "expected >= 3 rationale_for edges, got {}",
+            rationale_edges.len()
+        );
     }
 }

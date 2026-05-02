@@ -50,7 +50,13 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
             let file_type = match node.node_type.as_str() {
                 "rationale" => "rationale",
                 "concept" | "entity" | "pattern" | "module" => node.node_type.as_str(),
-                _ => if extraction.language == "markdown" { "document" } else { "code" },
+                _ => {
+                    if extraction.language == "markdown" {
+                        "document"
+                    } else {
+                        "code"
+                    }
+                }
             };
 
             tx.execute(
@@ -69,9 +75,19 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
 
         for edge in &extraction.edges {
             // Ensure source node exists (stub if missing)
-            ensure_node_exists(&tx, &edge.source, &edge.source, &normalize(&edge.source_file))?;
+            ensure_node_exists(
+                &tx,
+                &edge.source,
+                &edge.source,
+                &normalize(&edge.source_file),
+            )?;
             // Ensure target node exists (stub if missing)
-            ensure_node_exists(&tx, &edge.target, &edge.target, &normalize(&edge.source_file))?;
+            ensure_node_exists(
+                &tx,
+                &edge.target,
+                &edge.target,
+                &normalize(&edge.source_file),
+            )?;
 
             tx.execute(
                 "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -120,7 +136,7 @@ fn ensure_node_exists(tx: &Transaction, id: &str, label: &str, source_file: &str
 mod tests {
     use super::*;
     use graphify_core::db::open_db_in_memory;
-    use graphify_extract::{Extraction, ExtractedEdge, ExtractedNode};
+    use graphify_extract::{ExtractedEdge, ExtractedNode, Extraction};
     use std::path::PathBuf;
 
     fn make_extraction(nodes: Vec<(&str, &str)>, edges: Vec<(&str, &str, &str)>) -> Extraction {

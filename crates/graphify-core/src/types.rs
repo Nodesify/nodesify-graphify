@@ -45,7 +45,13 @@ mod tests {
 
     #[test]
     fn file_type_roundtrip() {
-        for ft in [FileType::Code, FileType::Document, FileType::Paper, FileType::Image, FileType::Video] {
+        for ft in [
+            FileType::Code,
+            FileType::Document,
+            FileType::Paper,
+            FileType::Image,
+            FileType::Video,
+        ] {
             assert_eq!(FileType::from_str(ft.as_str()), Some(ft));
         }
     }

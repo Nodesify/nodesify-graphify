@@ -5,7 +5,12 @@ pub fn config() -> &'static LanguageConfig {
         name: "Scala",
         extensions: &[".scala"],
         language_fn: || tree_sitter_scala::LANGUAGE.into(),
-        class_types: &["class_definition", "object_definition", "trait_definition", "enum_definition"],
+        class_types: &[
+            "class_definition",
+            "object_definition",
+            "trait_definition",
+            "enum_definition",
+        ],
         function_types: &["function_definition", "function_declaration"],
         import_types: &["import_declaration"],
         call_type: "call_expression",

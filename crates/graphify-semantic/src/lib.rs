@@ -49,11 +49,7 @@ impl SemanticExtraction {
 
 /// Trait for semantic extraction backends.
 pub trait SemanticBackend {
-    fn extract_semantic(
-        &self,
-        content: &str,
-        file_type: &str,
-    ) -> Result<SemanticExtraction>;
+    fn extract_semantic(&self, content: &str, file_type: &str) -> Result<SemanticExtraction>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,11 +60,7 @@ pub trait SemanticBackend {
 pub struct NoopBackend;
 
 impl SemanticBackend for NoopBackend {
-    fn extract_semantic(
-        &self,
-        _content: &str,
-        _file_type: &str,
-    ) -> Result<SemanticExtraction> {
+    fn extract_semantic(&self, _content: &str, _file_type: &str) -> Result<SemanticExtraction> {
         Ok(SemanticExtraction::empty())
     }
 }
@@ -91,17 +83,19 @@ impl ClaudeBackend {
     /// - `GRAPHIFY_LLM_MODEL` — optional, defaults to `claude-sonnet-4-20250514`.
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("GRAPHIFY_LLM_API_KEY").map_err(|_| {
-            GraphifyError::Graph(
-                "GRAPHIFY_LLM_API_KEY environment variable is not set".into(),
-            )
+            GraphifyError::Graph("GRAPHIFY_LLM_API_KEY environment variable is not set".into())
         })?;
-        let model =
-            std::env::var("GRAPHIFY_LLM_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".into());
+        let model = std::env::var("GRAPHIFY_LLM_MODEL")
+            .unwrap_or_else(|_| "claude-sonnet-4-20250514".into());
         let agent = ureq::config::Config::builder()
             .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .new_agent();
-        Ok(Self { agent, api_key, model })
+        Ok(Self {
+            agent,
+            api_key,
+            model,
+        })
     }
 
     /// Create with explicit credentials (useful for testing).
@@ -110,7 +104,11 @@ impl ClaudeBackend {
             .timeout_global(Some(Duration::from_secs(30)))
             .build()
             .new_agent();
-        Self { agent, api_key, model }
+        Self {
+            agent,
+            api_key,
+            model,
+        }
     }
 
     /// Build the JSON prompt payload sent to the Anthropic Messages API.
@@ -142,15 +140,13 @@ impl ClaudeBackend {
 }
 
 impl SemanticBackend for ClaudeBackend {
-    fn extract_semantic(
-        &self,
-        content: &str,
-        file_type: &str,
-    ) -> Result<SemanticExtraction> {
+    fn extract_semantic(&self, content: &str, file_type: &str) -> Result<SemanticExtraction> {
         let body = self.build_request_body(content, file_type);
         let body_str = serde_json::to_string(&body)?;
 
-        let response = self.agent.post("https://api.anthropic.com/v1/messages")
+        let response = self
+            .agent
+            .post("https://api.anthropic.com/v1/messages")
             .header("Content-Type", "application/json")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -158,8 +154,10 @@ impl SemanticBackend for ClaudeBackend {
             .map_err(|e| GraphifyError::Graph(format!("Claude API request failed: {e}")))?;
 
         let response_body = response.into_body().read_to_string().unwrap_or_default();
-        let response_json: serde_json::Value = serde_json::from_str(&response_body)
-            .map_err(|e| GraphifyError::Graph(format!("Failed to parse Claude API response: {e}")))?;
+        let response_json: serde_json::Value =
+            serde_json::from_str(&response_body).map_err(|e| {
+                GraphifyError::Graph(format!("Failed to parse Claude API response: {e}"))
+            })?;
 
         // Extract the text content from the response.
         let text = response_json
@@ -174,17 +172,20 @@ impl SemanticBackend for ClaudeBackend {
         }
 
         // Parse the JSON from the model's response.
-        let extraction: SemanticExtraction = serde_json::from_str(text.trim()).unwrap_or_else(|_| {
-            // Try to find a JSON object within the text in case the model wrapped it.
-            if let Some(start) = text.find('{') {
-                if let Some(end) = text.rfind('}') {
-                    if let Ok(parsed) = serde_json::from_str::<SemanticExtraction>(&text[start..=end]) {
-                        return parsed;
+        let extraction: SemanticExtraction =
+            serde_json::from_str(text.trim()).unwrap_or_else(|_| {
+                // Try to find a JSON object within the text in case the model wrapped it.
+                if let Some(start) = text.find('{') {
+                    if let Some(end) = text.rfind('}') {
+                        if let Ok(parsed) =
+                            serde_json::from_str::<SemanticExtraction>(&text[start..=end])
+                        {
+                            return parsed;
+                        }
                     }
                 }
-            }
-            SemanticExtraction::empty()
-        });
+                SemanticExtraction::empty()
+            });
 
         Ok(extraction)
     }

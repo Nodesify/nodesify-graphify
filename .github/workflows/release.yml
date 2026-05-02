@@ -16,18 +16,30 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            ext: so
+            lib: libgraphify_napi.so
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            ext: so
+            lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            ext: so
+            lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y musl-tools
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            ext: dll
+            lib: graphify_napi.dll
           - os: macos-latest
             target: aarch64-apple-darwin
+            ext: dylib
+            lib: libgraphify_napi.dylib
           - os: macos-13
             target: x86_64-apple-darwin
+            ext: dylib
+            lib: libgraphify_napi.dylib
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -43,13 +55,19 @@ jobs:
       - name: Install dependencies
         run: cd packages/graphify-cli && npm install
       - name: Build native binary
-        run: |
-          cd packages/graphify-cli
-          npx napi build --platform --release --target ${{ matrix.target }} --cargo-cwd ../../ -p graphify-napi dist
+        env:
+          NAPI_RS_CLI_VERSION: '2.18.4'
+        run: cargo build --release --target ${{ matrix.target }} -p graphify-napi
+      - name: Copy artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.lib }} packages/graphify-cli/dist/graphify.node
+      - name: Copy artifact (Windows)
+        if: runner.os == 'Windows'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.lib }} packages/graphify-cli/dist/graphify.node
       - uses: actions/upload-artifact@v4
         with:
           name: graphify-${{ matrix.target }}
-          path: packages/graphify-cli/*.node
+          path: packages/graphify-cli/dist/graphify.node
 
   publish:
     runs-on: ubuntu-latest

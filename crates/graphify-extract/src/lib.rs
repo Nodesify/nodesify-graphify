@@ -1,6 +1,6 @@
-pub mod schema;
 pub mod engine;
 pub mod langs;
+pub mod schema;
 
-pub use schema::{Extraction, ExtractedNode, ExtractedEdge};
 pub use engine::extract;
+pub use schema::{ExtractedEdge, ExtractedNode, Extraction};

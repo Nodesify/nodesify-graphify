@@ -1,11 +1,11 @@
 // graphify-core: core types, database schema, and pipeline orchestration
 
-pub mod types;
-pub mod error;
 pub mod db;
+pub mod error;
 pub mod security;
+pub mod types;
 
-pub use types::*;
-pub use error::{GraphifyError, Result};
 pub use db::{open_db, open_db_in_memory};
-pub use security::{validate_path, check_file_size, sanitize_label, sanitize_docstring};
+pub use error::{GraphifyError, Result};
+pub use security::{check_file_size, sanitize_docstring, sanitize_label, validate_path};
+pub use types::*;

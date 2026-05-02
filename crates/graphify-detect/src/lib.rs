@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use graphify_core::FileType;
 use graphify_paths::normalize;
 use rusqlite::Connection;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -26,11 +26,9 @@ pub struct DetectResult {
 }
 
 const CODE_EXTENSIONS: &[&str] = &[
-    ".py", ".js", ".jsx", ".mjs", ".ts", ".tsx",
-    ".rs", ".go", ".java", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp",
-    ".rb", ".rake", ".swift", ".kt", ".kts", ".scala", ".php", ".cs",
-    ".lua", ".hs", ".ex", ".exs", ".sh", ".bash", ".dart", ".zig",
-    ".css", ".scss",
+    ".py", ".js", ".jsx", ".mjs", ".ts", ".tsx", ".rs", ".go", ".java", ".c", ".h", ".cpp", ".cc",
+    ".cxx", ".hpp", ".rb", ".rake", ".swift", ".kt", ".kts", ".scala", ".php", ".cs", ".lua",
+    ".hs", ".ex", ".exs", ".sh", ".bash", ".dart", ".zig", ".css", ".scss",
 ];
 const DOC_EXTENSIONS: &[&str] = &[".md", ".mdx", ".txt", ".rst"];
 const PAPER_EXTENSIONS: &[&str] = &[".pdf"];
@@ -38,19 +36,39 @@ const IMAGE_EXTENSIONS: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".webp", ".
 const VIDEO_EXTENSIONS: &[&str] = &[".mp4", ".mov", ".webm", ".mkv", ".avi"];
 
 const EXTENSION_TO_LANGUAGE: &[(&str, &str)] = &[
-    (".py", "Python"), (".js", "JavaScript"), (".jsx", "JavaScript"),
-    (".mjs", "JavaScript"), (".ts", "TypeScript"), (".tsx", "TypeScript"),
-    (".rs", "Rust"), (".go", "Go"), (".java", "Java"),
-    (".c", "C"), (".h", "C"), (".cpp", "C++"), (".cc", "C++"),
-    (".cxx", "C++"), (".hpp", "C++"),
-    (".rb", "Ruby"), (".rake", "Ruby"), (".swift", "Swift"),
-    (".kt", "Kotlin"), (".kts", "Kotlin"), (".scala", "Scala"),
-    (".php", "PHP"), (".cs", "C#"),
-    (".lua", "Lua"), (".hs", "Haskell"),
-    (".ex", "Elixir"), (".exs", "Elixir"),
-    (".sh", "Shell"), (".bash", "Shell"),
-    (".dart", "Dart"), (".zig", "Zig"),
-    (".css", "CSS"), (".scss", "CSS"),
+    (".py", "Python"),
+    (".js", "JavaScript"),
+    (".jsx", "JavaScript"),
+    (".mjs", "JavaScript"),
+    (".ts", "TypeScript"),
+    (".tsx", "TypeScript"),
+    (".rs", "Rust"),
+    (".go", "Go"),
+    (".java", "Java"),
+    (".c", "C"),
+    (".h", "C"),
+    (".cpp", "C++"),
+    (".cc", "C++"),
+    (".cxx", "C++"),
+    (".hpp", "C++"),
+    (".rb", "Ruby"),
+    (".rake", "Ruby"),
+    (".swift", "Swift"),
+    (".kt", "Kotlin"),
+    (".kts", "Kotlin"),
+    (".scala", "Scala"),
+    (".php", "PHP"),
+    (".cs", "C#"),
+    (".lua", "Lua"),
+    (".hs", "Haskell"),
+    (".ex", "Elixir"),
+    (".exs", "Elixir"),
+    (".sh", "Shell"),
+    (".bash", "Shell"),
+    (".dart", "Dart"),
+    (".zig", "Zig"),
+    (".css", "CSS"),
+    (".scss", "CSS"),
 ];
 
 pub fn classify_file(path: &Path) -> Option<FileType> {
@@ -75,8 +93,13 @@ pub fn classify_file(path: &Path) -> Option<FileType> {
 }
 
 pub fn language_for_extension(ext: &str) -> Option<&'static str> {
-    let ext_with_dot = if ext.starts_with('.') { ext.to_lowercase() } else { format!(".{}", ext).to_lowercase() };
-    EXTENSION_TO_LANGUAGE.iter()
+    let ext_with_dot = if ext.starts_with('.') {
+        ext.to_lowercase()
+    } else {
+        format!(".{}", ext).to_lowercase()
+    };
+    EXTENSION_TO_LANGUAGE
+        .iter()
         .find(|(e, _)| e.to_lowercase() == ext_with_dot)
         .map(|(_, lang)| *lang)
 }
@@ -160,9 +183,19 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
 
     // Find removed files
     let mut removed_files = Vec::new();
-    let mut stmt = db.prepare("SELECT file_path, content_hash, file_type, language, size_bytes FROM file_manifest")?;
+    let mut stmt = db.prepare(
+        "SELECT file_path, content_hash, file_type, language, size_bytes FROM file_manifest",
+    )?;
     let rows: Vec<(String, String, String, Option<String>, u64)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -193,7 +226,12 @@ pub fn update_manifest(result: &DetectResult, db: &Connection) -> graphify_core:
         .as_secs()
         .to_string();
 
-    let all_entries: Vec<&FileEntry> = result.new.iter().chain(result.changed.iter()).chain(result.unchanged.iter()).collect();
+    let all_entries: Vec<&FileEntry> = result
+        .new
+        .iter()
+        .chain(result.changed.iter())
+        .chain(result.unchanged.iter())
+        .collect();
     for entry in &all_entries {
         db.execute(
             "INSERT OR REPLACE INTO file_manifest (file_path, content_hash, file_type, language, last_seen_at, size_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -208,7 +246,10 @@ pub fn update_manifest(result: &DetectResult, db: &Connection) -> graphify_core:
         )?;
     }
     for entry in &result.removed {
-        db.execute("DELETE FROM file_manifest WHERE file_path = ?1", rusqlite::params![normalize(&entry.path)])?;
+        db.execute(
+            "DELETE FROM file_manifest WHERE file_path = ?1",
+            rusqlite::params![normalize(&entry.path)],
+        )?;
     }
     Ok(())
 }
@@ -216,8 +257,8 @@ pub fn update_manifest(result: &DetectResult, db: &Connection) -> graphify_core:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use graphify_core::db::open_db_in_memory;
+    use std::fs;
 
     #[test]
     fn classify_known_extensions() {
@@ -250,8 +291,14 @@ mod tests {
         assert_eq!(result.new.len(), 2);
         assert_eq!(result.changed.len(), 0);
         assert_eq!(result.removed.len(), 0);
-        assert!(result.new.iter().any(|f| f.path.to_string_lossy().contains("main.py")));
-        assert!(result.new.iter().any(|f| f.language.as_deref() == Some("Python")));
+        assert!(result
+            .new
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("main.py")));
+        assert!(result
+            .new
+            .iter()
+            .any(|f| f.language.as_deref() == Some("Python")));
     }
 
     #[test]

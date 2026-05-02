@@ -38,12 +38,19 @@ struct LoadedGraph {
 fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
     let mut nodes = Vec::new();
     {
-        let mut stmt = db.prepare(
-            "SELECT id, label, source_file, community, docstring FROM nodes",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT id, label, source_file, community, docstring FROM nodes")?;
         #[allow(clippy::type_complexity)]
         let rows: Vec<(String, String, String, Option<i64>, Option<String>)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
             .filter_map(|r| r.ok())
             .collect();
         for (id, label, sf, comm, doc) in rows {
@@ -65,9 +72,7 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
     }
 
     {
-        let mut stmt = db.prepare(
-            "SELECT source, target, relation, confidence FROM edges",
-        )?;
+        let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
         let rows: Vec<(String, String, String, String)> = stmt
             .query_map([], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
@@ -76,7 +81,14 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
             .collect();
         for (src, tgt, rel, conf) in rows {
             if let (Some(&s), Some(&t)) = (id_to_idx.get(&src), id_to_idx.get(&tgt)) {
-                graph.add_edge(s, t, EdgeData { relation: rel, confidence: conf });
+                graph.add_edge(
+                    s,
+                    t,
+                    EdgeData {
+                        relation: rel,
+                        confidence: conf,
+                    },
+                );
             }
         }
     }
@@ -92,7 +104,9 @@ fn score_nodes(loaded: &LoadedGraph, terms: &[String]) -> Vec<(f64, NodeIndex)> 
         let sf_lower = node.source_file.to_lowercase();
         let mut score = 0.0;
         for term in terms {
-            if term.len() <= 2 { continue; }
+            if term.len() <= 2 {
+                continue;
+            }
             if label_lower.contains(&term.to_lowercase()) {
                 score += 1.0;
             }
@@ -128,7 +142,9 @@ fn bfs_subgraph(
                 }
             }
         }
-        if next_frontier.is_empty() { break; }
+        if next_frontier.is_empty() {
+            break;
+        }
         frontier = next_frontier;
     }
     (visited, edges_seen)
@@ -184,7 +200,10 @@ fn subgraph_to_text(
             }
         }
         if out.len() + line.len() > char_budget {
-            out.push_str(&format!("... (truncated to ~{} token budget)\n", token_budget));
+            out.push_str(&format!(
+                "... (truncated to ~{} token budget)\n",
+                token_budget
+            ));
             return out;
         }
         out.push_str(&line);
@@ -196,10 +215,16 @@ fn subgraph_to_text(
         if let Some(edge) = loaded.graph.edges_connecting(*src_idx, *tgt_idx).next() {
             let line = format!(
                 "EDGE {} --{} [{}]--> {}\n",
-                src.label, edge.weight().relation, edge.weight().confidence, tgt.label
+                src.label,
+                edge.weight().relation,
+                edge.weight().confidence,
+                tgt.label
             );
             if out.len() + line.len() > char_budget {
-                out.push_str(&format!("... (truncated to ~{} token budget)\n", token_budget));
+                out.push_str(&format!(
+                    "... (truncated to ~{} token budget)\n",
+                    token_budget
+                ));
                 return out;
             }
             out.push_str(&line);
@@ -271,13 +296,17 @@ pub fn query_graph(
         bfs_subgraph(&loaded, &seed_nodes, depth)
     };
 
-    let seed_labels: Vec<String> = seed_nodes.iter()
+    let seed_labels: Vec<String> = seed_nodes
+        .iter()
         .map(|&idx| loaded.graph[idx].label.clone())
         .collect();
 
     let header = format!(
         "Traversal: {} depth={} | Start: {:?} | {} nodes found\n\n",
-        mode.to_uppercase(), depth, seed_labels, visited.len()
+        mode.to_uppercase(),
+        depth,
+        seed_labels,
+        visited.len()
     );
     let body = subgraph_to_text(&loaded, &visited, &edges_seen, budget);
     let result_text = header + &body;
@@ -297,19 +326,37 @@ pub fn find_shortest_path(
         return Ok((false, 0, "No nodes in graph.".to_string()));
     }
 
-    let src_terms: Vec<String> = source_query.split_whitespace().map(|s| s.to_string()).collect();
-    let tgt_terms: Vec<String> = target_query.split_whitespace().map(|s| s.to_string()).collect();
+    let src_terms: Vec<String> = source_query
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    let tgt_terms: Vec<String> = target_query
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
 
     let src_scored = score_nodes(&loaded, &src_terms);
     let tgt_scored = score_nodes(&loaded, &tgt_terms);
 
     let src_idx = match src_scored.first() {
         Some((_, idx)) => *idx,
-        None => return Ok((false, 0, format!("No matching node for '{}'.", source_query))),
+        None => {
+            return Ok((
+                false,
+                0,
+                format!("No matching node for '{}'.", source_query),
+            ))
+        }
     };
     let tgt_idx = match tgt_scored.first() {
         Some((_, idx)) => *idx,
-        None => return Ok((false, 0, format!("No matching node for '{}'.", target_query))),
+        None => {
+            return Ok((
+                false,
+                0,
+                format!("No matching node for '{}'.", target_query),
+            ))
+        }
     };
 
     let path = match shortest_path_bfs(&loaded, src_idx, tgt_idx) {
@@ -326,11 +373,18 @@ pub fn find_shortest_path(
         let edge_info = loaded.graph.edges_connecting(path[i], path[i + 1]).next();
         let rel = edge_info.map_or("?".to_string(), |e| e.weight().relation.clone());
         let conf = edge_info.map_or("?".to_string(), |e| e.weight().confidence.clone());
-        text.push_str(&format!("  {} --{} [{}]--> {}\n", src.label, rel, conf, tgt.label));
+        text.push_str(&format!(
+            "  {} --{} [{}]--> {}\n",
+            src.label, rel, conf, tgt.label
+        ));
     }
 
     let answer = format!("path found: {} hops", hops);
-    log_query(db, &format!("{} -> {}", source_query, target_query), &answer);
+    log_query(
+        db,
+        &format!("{} -> {}", source_query, target_query),
+        &answer,
+    );
 
     Ok((true, hops, text))
 }
@@ -371,7 +425,11 @@ pub fn explain_with_neighbors(
     neighbors.sort_by(|a, b| b.confidence.cmp(&a.confidence));
     neighbors.truncate(20);
 
-    let answer = format!("explain: {} ({} neighbors)", node.label, loaded.graph.neighbors(idx).count());
+    let answer = format!(
+        "explain: {} ({} neighbors)",
+        node.label,
+        loaded.graph.neighbors(idx).count()
+    );
     log_query(db, node_id, &answer);
 
     Ok(Some(ExplainResult {

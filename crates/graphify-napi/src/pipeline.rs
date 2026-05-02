@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use graphify_core::db;
 use graphify_paths;
@@ -143,7 +143,8 @@ fn enrich_with_semantics(
 
 pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
     let root = if root.exists() {
-        root.canonicalize().map_err(graphify_core::GraphifyError::Io)?
+        root.canonicalize()
+            .map_err(graphify_core::GraphifyError::Io)?
     } else {
         return Err(graphify_core::GraphifyError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -165,7 +166,12 @@ pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
 
     // Record pipeline completion
     let (status, files_processed, nodes_added, edges_added) = match &result {
-        Ok(r) => ("completed", 0i64, r.build_result.nodes_added as i64, r.build_result.edges_added as i64),
+        Ok(r) => (
+            "completed",
+            0i64,
+            r.build_result.nodes_added as i64,
+            r.build_result.edges_added as i64,
+        ),
         Err(_) => ("failed", 0, 0, 0),
     };
     if let Err(e) = db.execute(
@@ -178,25 +184,44 @@ pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
     result
 }
 
-fn run_pipeline_inner(root: &Path, db: &Connection, graphify_dir: &Path) -> graphify_core::Result<PipelineResult> {
+fn run_pipeline_inner(
+    root: &Path,
+    db: &Connection,
+    graphify_dir: &Path,
+) -> graphify_core::Result<PipelineResult> {
     let detected = graphify_detect::detect(root, db)?;
     graphify_detect::update_manifest(&detected, db)?;
 
     // Clean up removed files from the graph
     for entry in &detected.removed {
         let path_str = graphify_paths::normalize(&entry.path);
-        if let Err(e) = db.execute("DELETE FROM edges WHERE source_file = ?1", rusqlite::params![path_str]) {
+        if let Err(e) = db.execute(
+            "DELETE FROM edges WHERE source_file = ?1",
+            rusqlite::params![path_str],
+        ) {
             eprintln!("warning: failed to clean edges for {}: {}", path_str, e);
         }
-        if let Err(e) = db.execute("DELETE FROM nodes WHERE source_file = ?1", rusqlite::params![path_str]) {
+        if let Err(e) = db.execute(
+            "DELETE FROM nodes WHERE source_file = ?1",
+            rusqlite::params![path_str],
+        ) {
             eprintln!("warning: failed to clean nodes for {}: {}", path_str, e);
         }
-        if let Err(e) = db.execute("DELETE FROM extraction_cache WHERE file_path = ?1", rusqlite::params![path_str]) {
+        if let Err(e) = db.execute(
+            "DELETE FROM extraction_cache WHERE file_path = ?1",
+            rusqlite::params![path_str],
+        ) {
             eprintln!("warning: failed to clean cache for {}: {}", path_str, e);
         }
         let semantic_key = format!("semantic:{}", path_str);
-        if let Err(e) = db.execute("DELETE FROM extraction_cache WHERE file_path = ?1", rusqlite::params![semantic_key]) {
-            eprintln!("warning: failed to clean semantic cache for {}: {}", path_str, e);
+        if let Err(e) = db.execute(
+            "DELETE FROM extraction_cache WHERE file_path = ?1",
+            rusqlite::params![semantic_key],
+        ) {
+            eprintln!(
+                "warning: failed to clean semantic cache for {}: {}",
+                path_str, e
+            );
         }
     }
 
@@ -256,8 +281,16 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
         "SELECT id, label, file_type, source_file, source_line, docstring, community FROM nodes",
     )?;
     #[allow(clippy::type_complexity)]
-    let node_rows: Vec<(String, String, String, String, Option<i64>, Option<String>, Option<i64>)> =
-        stmt.query_map([], |row| {
+    let node_rows: Vec<(
+        String,
+        String,
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+    )> = stmt
+        .query_map([], |row| {
             Ok((
                 row.get(0)?,
                 row.get(1)?,

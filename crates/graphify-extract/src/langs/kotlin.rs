@@ -17,7 +17,12 @@ pub fn config() -> &'static LanguageConfig {
         name: "Kotlin",
         extensions: &[".kt", ".kts"],
         language_fn: kotlin_language,
-        class_types: &["class_declaration", "object_declaration", "interface_declaration", "enum_declaration"],
+        class_types: &[
+            "class_declaration",
+            "object_declaration",
+            "interface_declaration",
+            "enum_declaration",
+        ],
         function_types: &["function_declaration"],
         import_types: &["import_header"],
         call_type: "call_expression",

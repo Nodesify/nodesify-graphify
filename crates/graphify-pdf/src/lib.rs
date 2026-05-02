@@ -19,11 +19,9 @@ pub fn extract_text(path: &Path) -> Result<String> {
         ))
     })?;
 
-    let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| {
-        GraphifyError::Parse {
-            file: path_str.clone(),
-            message: format!("PDF extraction failed: {e}"),
-        }
+    let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| GraphifyError::Parse {
+        file: path_str.clone(),
+        message: format!("PDF extraction failed: {e}"),
     })?;
 
     Ok(text)
