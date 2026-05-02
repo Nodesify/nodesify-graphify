@@ -22,12 +22,12 @@ jobs:
             target: aarch64-unknown-linux-gnu
             lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-            linker: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            linker: aarch64-linux-gnu-gcc
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y musl-tools
-            linker: CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+            linker: musl-gcc
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             lib: graphify_napi.dll
@@ -45,6 +45,12 @@ jobs:
       - name: Setup cross-compilation toolchain
         if: matrix.setup != ''
         run: ${{ matrix.setup }}
+      - name: Configure linker
+        if: matrix.linker != ''
+        run: |
+          mkdir -p .cargo
+          echo '[target.${{ matrix.target }}]' >> .cargo/config.toml
+          echo 'linker = "${{ matrix.linker }}"' >> .cargo/config.toml
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -54,7 +60,6 @@ jobs:
       - name: Build native binary
         env:
           NAPI_RS_CLI_VERSION: '2.18.4'
-          ${{ matrix.linker }}: ''
         run: cargo build --release --target ${{ matrix.target }} -p graphify-napi
       - name: Copy artifact (Linux/macOS)
         if: runner.os != 'Windows'
