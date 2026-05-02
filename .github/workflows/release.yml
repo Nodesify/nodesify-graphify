@@ -7,6 +7,7 @@ on:
 
 permissions:
   id-token: write
+  contents: write
 
 jobs:
   build:
@@ -72,6 +73,7 @@ jobs:
     needs: build
     permissions:
       id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -84,15 +86,35 @@ jobs:
           pattern: 'graphify-*'
       - name: Move artifacts
         run: |
-          mkdir -p packages/graphify-cli/napi
-          find artifacts -name '*.node' -exec mv {} packages/graphify-cli/ \;
+          mkdir -p packages/graphify-cli/npm
+          for dir in artifacts/graphify-*/; do
+            target=$(basename "$dir" | sed 's/graphify-//')
+            mkdir -p "packages/graphify-cli/npm/$target"
+            cp "$dir"*.node "packages/graphify-cli/npm/$target/graphify.$target.node"
+          done
       - name: Install dependencies
         run: cd packages/graphify-cli && npm install
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
-      - name: Upgrade npm for OIDC
-        run: corepack enable && corepack prepare npm@latest --activate
       - name: Prepare packages
-        run: cd packages/graphify-cli && npx napi prepublish -t npm
-      - name: Publish
+        run: cd packages/graphify-cli && npx napi prepublish -t npm --skip-gh-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+      - name: Upgrade npm for OIDC
+        run: npm install -g npm@11 --force
+      - name: Publish main package
         run: cd packages/graphify-cli && npm publish --provenance --access public
+      - name: Publish platform packages
+        run: |
+          for dir in packages/graphify-cli/npm/*/; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Publishing $(jq -r .name < "$dir/package.json")..."
+              cd "$dir"
+              npm publish --provenance --access public || true
+              cd -
+            fi
+          done
