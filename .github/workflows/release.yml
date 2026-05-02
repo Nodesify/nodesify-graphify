@@ -12,35 +12,31 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            ext: so
             lib: libgraphify_napi.so
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            ext: so
             lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+            linker: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            ext: so
             lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y musl-tools
+            linker: CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            ext: dll
             lib: graphify_napi.dll
           - os: macos-latest
             target: aarch64-apple-darwin
-            ext: dylib
             lib: libgraphify_napi.dylib
           - os: macos-latest
             target: x86_64-apple-darwin
-            ext: dylib
             lib: libgraphify_napi.dylib
-            rustflags: -C target-cpu=x86-64
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -58,6 +54,7 @@ jobs:
       - name: Build native binary
         env:
           NAPI_RS_CLI_VERSION: '2.18.4'
+          ${{ matrix.linker }}: ''
         run: cargo build --release --target ${{ matrix.target }} -p graphify-napi
       - name: Copy artifact (Linux/macOS)
         if: runner.os != 'Windows'
@@ -93,5 +90,7 @@ jobs:
         run: cd packages/graphify-cli && npm install
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
+      - name: Upgrade npm for OIDC
+        run: npm install -g npm@latest
       - name: Publish
         run: cd packages/graphify-cli && npx napi prepublish -t npm
