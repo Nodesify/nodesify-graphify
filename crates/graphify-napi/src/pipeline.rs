@@ -69,10 +69,12 @@ fn save_semantic_cache(
     let nodes_json = serde_json::to_string(&extraction.nodes).unwrap_or_default();
     let edges_json = serde_json::to_string(&extraction.edges).unwrap_or_default();
     let now = timestamp();
-    let _ = db.execute(
+    if let Err(e) = db.execute(
         "INSERT OR REPLACE INTO extraction_cache (file_path, content_hash, language, nodes, edges, extracted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![&key, hash, "semantic", nodes_json, edges_json, now],
-    );
+    ) {
+        eprintln!("warning: failed to cache semantic extraction for {}: {}", key, e);
+    }
 }
 
 /// Enrich existing extractions with LLM-based semantic data.
@@ -192,37 +194,30 @@ fn run_pipeline_inner(
     let detected = graphify_detect::detect(root, db)?;
     graphify_detect::update_manifest(&detected, db)?;
 
-    // Clean up removed files from the graph
-    for entry in &detected.removed {
-        let path_str = graphify_paths::normalize(&entry.path);
-        if let Err(e) = db.execute(
-            "DELETE FROM edges WHERE source_file = ?1",
-            rusqlite::params![path_str],
-        ) {
-            eprintln!("warning: failed to clean edges for {}: {}", path_str, e);
+    // Clean up removed files from the graph (transactional)
+    if !detected.removed.is_empty() {
+        let tx = db.unchecked_transaction()?;
+        for entry in &detected.removed {
+            let path_str = graphify_paths::normalize(&entry.path);
+            tx.execute(
+                "DELETE FROM edges WHERE source_file = ?1",
+                rusqlite::params![path_str],
+            )?;
+            tx.execute(
+                "DELETE FROM nodes WHERE source_file = ?1",
+                rusqlite::params![path_str],
+            )?;
+            tx.execute(
+                "DELETE FROM extraction_cache WHERE file_path = ?1",
+                rusqlite::params![path_str],
+            )?;
+            let semantic_key = format!("semantic:{}", path_str);
+            tx.execute(
+                "DELETE FROM extraction_cache WHERE file_path = ?1",
+                rusqlite::params![semantic_key],
+            )?;
         }
-        if let Err(e) = db.execute(
-            "DELETE FROM nodes WHERE source_file = ?1",
-            rusqlite::params![path_str],
-        ) {
-            eprintln!("warning: failed to clean nodes for {}: {}", path_str, e);
-        }
-        if let Err(e) = db.execute(
-            "DELETE FROM extraction_cache WHERE file_path = ?1",
-            rusqlite::params![path_str],
-        ) {
-            eprintln!("warning: failed to clean cache for {}: {}", path_str, e);
-        }
-        let semantic_key = format!("semantic:{}", path_str);
-        if let Err(e) = db.execute(
-            "DELETE FROM extraction_cache WHERE file_path = ?1",
-            rusqlite::params![semantic_key],
-        ) {
-            eprintln!(
-                "warning: failed to clean semantic cache for {}: {}",
-                path_str, e
-            );
-        }
+        tx.commit()?;
     }
 
     let files_to_process: Vec<PathBuf> = detected

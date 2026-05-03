@@ -106,7 +106,7 @@ fn save_cache(db: &Connection, path: &Path, hash: &str, extraction: &Extraction)
     let edges_json = serde_json::to_string(&extraction.edges).unwrap_or_default();
     let now = chrono_free_timestamp();
 
-    let _ = db.execute(
+    if let Err(e) = db.execute(
         "INSERT OR REPLACE INTO extraction_cache (file_path, content_hash, language, nodes, edges, extracted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             &path_str,
@@ -116,7 +116,9 @@ fn save_cache(db: &Connection, path: &Path, hash: &str, extraction: &Extraction)
             edges_json,
             now,
         ],
-    );
+    ) {
+        eprintln!("warning: failed to cache extraction for {}: {}", path_str, e);
+    }
 }
 
 /// Simple timestamp without needing chrono.
@@ -194,7 +196,7 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
     // --- Imports ---
     if state.cfg.import_types.contains(&kind) {
         let import_text = node_text(node, state.source);
-        let module_name = extract_import_module(import_text, kind);
+        let module_name = extract_import_module(import_text, kind, state.cfg.name);
         if let Some(mod_name) = module_name {
             let target_id = make_target_id(&mod_name);
             state.edges.push(ExtractedEdge {
@@ -305,37 +307,109 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
 }
 
 /// Best-effort module name extraction from import text.
-fn extract_import_module(text: &str, kind: &str) -> Option<String> {
-    // Python: "import foo" or "from foo import bar"
-    if kind == "import_statement" || kind == "import_from_statement" {
-        let cleaned = text
-            .trim()
-            .trim_start_matches("import ")
-            .trim_start_matches("from ");
-        let first = cleaned.split_whitespace().next()?;
-        let module = first.split('.').next()?;
-        return Some(module.to_string());
-    }
-    // JS/TS: import ... from 'module'
-    if kind == "import_statement" || kind == "import_declaration" {
-        if let Some(pos) = text.find("from") {
-            let after_from = &text[pos + 4..];
-            let trimmed = after_from.trim();
-            let module = trimmed
+/// Dispatches on language first to avoid conflicts between languages
+/// that share the same tree-sitter node kinds (e.g. "import_statement"
+/// is used by both Python and JavaScript).
+fn extract_import_module(text: &str, kind: &str, language: &str) -> Option<String> {
+    match (language, kind) {
+        ("Python", "import_statement" | "import_from_statement") => {
+            let cleaned = text
+                .trim()
+                .trim_start_matches("import ")
+                .trim_start_matches("from ");
+            let first = cleaned.split_whitespace().next()?;
+            let module = first.split('.').next()?;
+            Some(module.to_string())
+        }
+        ("JavaScript" | "TypeScript", "import_statement" | "import_declaration") => {
+            if let Some(pos) = text.find("from") {
+                let after_from = &text[pos + 4..];
+                let trimmed = after_from.trim();
+                let module = trimmed
+                    .trim_start_matches('"')
+                    .trim_start_matches('\'')
+                    .trim_start_matches('`')
+                    .split(&['"', '\'', '`'][..])
+                    .next()
+                    .unwrap_or("");
+                if !module.is_empty() {
+                    return Some(module.to_string());
+                }
+            }
+            // Require-style: require('module')
+            if let Some(pos) = text.find("require(") {
+                let after = &text[pos + 8..];
+                let module = after
+                    .trim_start_matches('"')
+                    .trim_start_matches('\'')
+                    .split(&['"', '\'', ')'][..])
+                    .next()
+                    .unwrap_or("");
+                if !module.is_empty() {
+                    return Some(module.to_string());
+                }
+            }
+            None
+        }
+        ("Rust", "use_declaration") => {
+            let cleaned = text.trim_start_matches("use").trim().trim_end_matches(';');
+            let first = cleaned.split("::").next()?.trim();
+            if !first.is_empty() {
+                return Some(first.to_string());
+            }
+            None
+        }
+        ("Go", "import_declaration") => {
+            let cleaned = text.trim_start_matches("import").trim();
+            let module = cleaned
                 .trim_start_matches('"')
-                .trim_start_matches('\'')
-                .trim_start_matches('`')
-                .split(&['"', '\'', '`'][..])
+                .split(&['"', '\n'][..])
                 .next()
                 .unwrap_or("");
             if !module.is_empty() {
                 return Some(module.to_string());
             }
+            None
         }
-        // Require-style: require('module')
-        if let Some(pos) = text.find("require(") {
-            let after = &text[pos + 8..];
-            let module = after
+        ("Java" | "Scala", "import_declaration") => {
+            let cleaned = text
+                .trim_start_matches("import")
+                .trim_start_matches("static")
+                .trim()
+                .trim_end_matches(';');
+            let parts: Vec<&str> = cleaned.split('.').collect();
+            if !parts.is_empty() {
+                return Some(parts.join("."));
+            }
+            None
+        }
+        ("Swift", "import_declaration") => {
+            let cleaned = text.trim_start_matches("import").trim();
+            let module = cleaned.split_whitespace().next()?;
+            if !module.is_empty() {
+                return Some(module.to_string());
+            }
+            None
+        }
+        ("C" | "C++", "preproc_include") => {
+            let cleaned = text.trim_start_matches("#include").trim();
+            let module = cleaned
+                .trim_start_matches('<')
+                .trim_start_matches('"')
+                .split(&['>', '"'][..])
+                .next()
+                .unwrap_or("");
+            if !module.is_empty() {
+                return Some(module.to_string());
+            }
+            None
+        }
+        ("CSS", "import_statement") => {
+            let cleaned = text.trim_start_matches("@import").trim();
+            let module = cleaned
+                .trim_start_matches('"')
+                .trim_start_matches('\'')
+                .trim_start_matches("url(")
                 .trim_start_matches('"')
                 .trim_start_matches('\'')
                 .split(&['"', '\'', ')'][..])
@@ -344,59 +418,10 @@ fn extract_import_module(text: &str, kind: &str) -> Option<String> {
             if !module.is_empty() {
                 return Some(module.to_string());
             }
+            None
         }
-        return None;
+        _ => None,
     }
-    // Rust: use foo::bar;
-    if kind == "use_declaration" {
-        let cleaned = text.trim_start_matches("use").trim().trim_end_matches(';');
-        let first = cleaned.split("::").next()?.trim();
-        if !first.is_empty() {
-            return Some(first.to_string());
-        }
-        return None;
-    }
-    // Go: import "module"
-    if kind == "import_declaration" {
-        let cleaned = text.trim_start_matches("import").trim();
-        let module = cleaned
-            .trim_start_matches('"')
-            .split(&['"', '\n'][..])
-            .next()
-            .unwrap_or("");
-        if !module.is_empty() {
-            return Some(module.to_string());
-        }
-        return None;
-    }
-    // Java: import foo.bar;
-    if kind == "import_declaration" {
-        let cleaned = text
-            .trim_start_matches("import")
-            .trim_start_matches("static")
-            .trim()
-            .trim_end_matches(';');
-        let parts: Vec<&str> = cleaned.split('.').collect();
-        if !parts.is_empty() {
-            return Some(parts.join("."));
-        }
-        return None;
-    }
-    // C/C++: #include <foo> or #include "foo"
-    if kind == "preproc_include" {
-        let cleaned = text.trim_start_matches("#include").trim();
-        let module = cleaned
-            .trim_start_matches('<')
-            .trim_start_matches('"')
-            .split(&['>', '"'][..])
-            .next()
-            .unwrap_or("");
-        if !module.is_empty() {
-            return Some(module.to_string());
-        }
-        return None;
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------

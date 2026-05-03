@@ -45,7 +45,7 @@ pub fn merge_graphs(
     let analysis = graphify_analyze::analyze(&db)?;
     let report = graphify_report::generate_report(&db, &analysis)?;
 
-    let _ = std::fs::write(out_graphify.join("graph_report.md"), &report);
+    std::fs::write(out_graphify.join("graph_report.md"), &report)?;
 
     Ok(MergeResult {
         nodes_added,
