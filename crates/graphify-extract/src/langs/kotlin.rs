@@ -1,14 +1,16 @@
-// Kotlin tree-sitter grammar (v0.3) depends on tree-sitter 0.20 which is
-// incompatible with our tree-sitter 0.25. This config is defined for future use
-// but excluded from the active language list in mod.rs until a compatible
-// tree-sitter-kotlin crate is released.
+// Kotlin tree-sitter grammar: tree-sitter-kotlin 0.3 depends on tree-sitter 0.20,
+// incompatible with our tree-sitter 0.25. The dependency has been removed from
+// Cargo.toml. To re-enable:
+//   1. Add `tree-sitter-kotlin` back to workspace and extract crate Cargo.toml
+//      once a tree-sitter 0.25+ compatible version is released.
+//   2. Replace `kotlin_language()` with `tree_sitter_kotlin::LANGUAGE.into()`.
+//   3. Uncomment `kotlin::config()` in `all_languages()` in mod.rs.
 
 use super::config::LanguageConfig;
 
-// Stub: returns a no-op language. This config is NOT registered in all_languages().
-// Replace with `tree_sitter_kotlin::LANGUAGE.into()` once the crate supports tree-sitter 0.25+.
+// Stub: returns Python grammar as placeholder. This config is NOT registered in
+// all_languages() and will never be used for parsing in its current state.
 fn kotlin_language() -> tree_sitter::Language {
-    // Using Python grammar as placeholder — this config is never used for parsing.
     tree_sitter_python::LANGUAGE.into()
 }
 

@@ -118,11 +118,26 @@ mod tests {
     }
 
     #[test]
-    fn extract_to_markdown_empty_input() {
-        // We cannot easily create a valid empty-text PDF in a unit test,
-        // so we test the markdown conversion logic by checking the guard.
-        // When extract_text returns empty, extract_to_markdown returns empty.
-        // This is implicitly covered by the short-circuit on trimmed empty text.
-        assert!(true);
+    fn extract_to_markdown_short_circuits_on_empty_text() {
+        // extract_to_markdown calls extract_text internally, which fails on
+        // non-existent files. Verify the error propagates rather than panicking.
+        let result = extract_to_markdown(Path::new("/nonexistent/empty.pdf"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_to_markdown_invalid_pdf_returns_error() {
+        // A non-PDF file should produce a Parse error from pdf_extract,
+        // not panic. This exercises the error path through extract_to_markdown.
+        let dir = std::env::temp_dir().join("graphify-pdf-test-md");
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("not_a_real.pdf");
+        std::fs::write(&fake, b"this is not a pdf").unwrap();
+
+        let result = extract_to_markdown(&fake);
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_file(&fake);
+        let _ = std::fs::remove_dir(&dir);
     }
 }
