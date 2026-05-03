@@ -102,8 +102,8 @@ jobs:
         run: cd packages/graphify-cli && npm run build
       - name: Upgrade npm for OIDC
         run: |
-          corepack enable
-          corepack prepare npm@11 --activate
+          npm install -g npm@11
+          hash -r
           npm --version
       - name: Clear token auth for OIDC
         run: |
