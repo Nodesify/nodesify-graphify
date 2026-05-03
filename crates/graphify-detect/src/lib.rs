@@ -142,7 +142,6 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
             continue;
         };
 
-        let rel_str = normalize(relative);
         seen_paths.insert(rel_str.clone());
 
         let metadata = std::fs::metadata(path)?;

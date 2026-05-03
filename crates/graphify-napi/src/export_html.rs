@@ -3,6 +3,8 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+const VIS_NETWORK_JS: &str = include_str!("assets/vis-network.min.js");
+
 pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()> {
     // Read nodes
     let mut nodes_json = Vec::new();
@@ -35,7 +37,7 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
                         e.insert(next_color);
                         next_color += 1;
                     }
-                    *communities.get(&c).unwrap()
+                    *communities.get(&c).unwrap_or(&0)
                 }
                 None => 0,
             };
@@ -127,7 +129,9 @@ pub fn export_html(db: &Connection, out_path: &Path) -> graphify_core::Result<()
   <div id="legend"></div>
   <div id="info"><div class="label" id="infoLabel"></div><div class="meta" id="infoMeta"></div></div>
   <div id="network"></div>
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js" integrity="sha384-OrA3tQDSHkPYtkfOSPGKkXik9gAWHb39oFSi0NN3rWsrDP8mxIQJMYi13B/+lDpf" crossorigin="anonymous"></script>
+  <script>
+    {VIS_NETWORK_JS}
+  </script>
   <script>
     var colors = {colors_js};
     var nodes = new vis.DataSet([
