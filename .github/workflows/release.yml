@@ -106,11 +106,16 @@ jobs:
           corepack enable
           corepack prepare npm@11 --activate
           npm --version
+      - name: Create platform packages
+        run: cd packages/graphify-cli && npx napi create-npm-dir -t .
       - name: Publish platform packages
-        run: cd packages/graphify-cli && npx napi prepublish -t npm --skip-gh-release
+        run: |
+          for dir in packages/graphify-cli/npm/*/; do
+            echo "Publishing $(node -p "require('./$dir/package.json').name")..."
+            npm publish "$dir" --ignore-scripts --access public
+          done
         env:
           NPM_CONFIG_ACCESS: public
-          NPM_CONFIG_IGNORE_SCRIPTS: true
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
