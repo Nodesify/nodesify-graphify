@@ -1,8 +1,6 @@
 use crate::error::Result;
 use rusqlite::Connection;
 
-const _CURRENT_SCHEMA_VERSION: i64 = 1;
-
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS extraction_cache (
     file_path TEXT PRIMARY KEY,
