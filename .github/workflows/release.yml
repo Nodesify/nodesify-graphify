@@ -116,7 +116,9 @@ jobs:
           unset NODE_AUTH_TOKEN
           for dir in packages/graphify-cli/npm/*/; do
             echo "Publishing $(node -p "require('./$dir/package.json').name")..."
-            npm publish "$dir" --ignore-scripts --access public --provenance
+            pushd "$dir"
+            npm publish --ignore-scripts --access public --provenance
+            popd
           done
         env:
           NPM_CONFIG_ACCESS: public
