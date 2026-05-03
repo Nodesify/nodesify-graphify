@@ -22,9 +22,14 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
     for extraction in extractions {
         let file_path = normalize(&extraction.file_path);
 
-        // Delete old edges first (foreign key references nodes), then old nodes
+        // Delete old edges first (foreign key references nodes), then old nodes.
+        // Must also delete edges from other files that reference nodes being removed.
         tx.execute(
             "DELETE FROM edges WHERE source_file = ?1",
+            rusqlite::params![file_path],
+        )?;
+        tx.execute(
+            "DELETE FROM edges WHERE source IN (SELECT id FROM nodes WHERE source_file = ?1) OR target IN (SELECT id FROM nodes WHERE source_file = ?1)",
             rusqlite::params![file_path],
         )?;
         tx.execute(

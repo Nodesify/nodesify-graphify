@@ -199,8 +199,14 @@ fn run_pipeline_inner(
         let tx = db.unchecked_transaction()?;
         for entry in &detected.removed {
             let path_str = graphify_paths::normalize(&entry.path);
+            // Delete edges owned by this file
             tx.execute(
                 "DELETE FROM edges WHERE source_file = ?1",
+                rusqlite::params![path_str],
+            )?;
+            // Delete edges from other files that reference nodes being removed
+            tx.execute(
+                "DELETE FROM edges WHERE source IN (SELECT id FROM nodes WHERE source_file = ?1) OR target IN (SELECT id FROM nodes WHERE source_file = ?1)",
                 rusqlite::params![path_str],
             )?;
             tx.execute(
