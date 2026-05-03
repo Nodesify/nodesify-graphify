@@ -84,7 +84,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22.14.0'
-          registry-url: 'https://registry.npmjs.org'
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -106,10 +105,15 @@ jobs:
           corepack enable
           corepack prepare npm@11 --activate
           npm --version
+      - name: Clear token auth for OIDC
+        run: |
+          npm config delete //registry.npmjs.org/:_authToken
+          unset NODE_AUTH_TOKEN
       - name: Create platform packages
         run: cd packages/graphify-cli && npx napi create-npm-dir -t .
       - name: Publish platform packages
         run: |
+          unset NODE_AUTH_TOKEN
           for dir in packages/graphify-cli/npm/*/; do
             echo "Publishing $(node -p "require('./$dir/package.json').name")..."
             npm publish "$dir" --ignore-scripts --access public
@@ -121,4 +125,6 @@ jobs:
         with:
           generate_release_notes: true
       - name: Publish main package
-        run: cd packages/graphify-cli && npm publish --ignore-scripts --access public
+        run: |
+          unset NODE_AUTH_TOKEN
+          cd packages/graphify-cli && npm publish --ignore-scripts --access public
