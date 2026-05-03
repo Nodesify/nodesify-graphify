@@ -33,11 +33,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nodesify/nodesify-graphify.git"
+    "url": "git+https://github.com/Nodesify/nodesify-graphify.git"
   },
-  "homepage": "https://github.com/nodesify/nodesify-graphify#readme",
+  "homepage": "https://github.com/Nodesify/nodesify-graphify#readme",
   "bugs": {
-    "url": "https://github.com/nodesify/nodesify-graphify/issues"
+    "url": "https://github.com/Nodesify/nodesify-graphify/issues"
   },
   "dependencies": {
     "commander": "^12"
