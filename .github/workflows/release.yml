@@ -18,20 +18,25 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            platform: linux-x64-gnu
             lib: libgraphify_napi.so
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            platform: linux-arm64-gnu
             lib: libgraphify_napi.so
             setup: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
             linker: aarch64-linux-gnu-gcc
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            platform: win32-x64-msvc
             lib: graphify_napi.dll
           - os: macos-latest
             target: aarch64-apple-darwin
+            platform: darwin-arm64
             lib: libgraphify_napi.dylib
           - os: macos-latest
             target: x86_64-apple-darwin
+            platform: darwin-x64
             lib: libgraphify_napi.dylib
     steps:
       - uses: actions/checkout@v5
@@ -65,7 +70,7 @@ jobs:
         run: cp target/${{ matrix.target }}/release/${{ matrix.lib }} packages/graphify-cli/dist/graphify.node
       - uses: actions/upload-artifact@v4
         with:
-          name: graphify-${{ matrix.target }}
+          name: graphify-${{ matrix.platform }}
           path: packages/graphify-cli/dist/graphify.node
 
   publish:
@@ -78,7 +83,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '22.14.0'
           registry-url: 'https://registry.npmjs.org'
       - uses: actions/download-artifact@v4
         with:
@@ -88,35 +93,26 @@ jobs:
         run: |
           mkdir -p packages/graphify-cli/npm
           for dir in artifacts/graphify-*/; do
-            target=$(basename "$dir" | sed 's/graphify-//')
-            mkdir -p "packages/graphify-cli/npm/$target"
-            cp "$dir"*.node "packages/graphify-cli/npm/$target/graphify.$target.node"
+            platform=$(basename "$dir" | sed 's/graphify-//')
+            mkdir -p "packages/graphify-cli/npm/$platform"
+            cp "$dir"*.node "packages/graphify-cli/npm/$platform/graphify.$platform.node"
           done
       - name: Install dependencies
         run: cd packages/graphify-cli && npm install
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
-      - name: Prepare packages
-        run: cd packages/graphify-cli && npx napi prepublish -t npm --skip-gh-release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
       - name: Upgrade npm for OIDC
         run: |
           corepack enable
           corepack prepare npm@11 --activate
-      - name: Publish main package
-        run: cd packages/graphify-cli && npm publish --provenance --access public
+          npm --version
       - name: Publish platform packages
-        run: |
-          for dir in packages/graphify-cli/npm/*/; do
-            if [ -f "$dir/package.json" ]; then
-              echo "Publishing $(jq -r .name < "$dir/package.json")..."
-              cd "$dir"
-              npm publish --provenance --access public || true
-              cd -
-            fi
-          done
+        run: cd packages/graphify-cli && npx napi prepublish -t npm --skip-gh-release
+        env:
+          NPM_CONFIG_ACCESS: public
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+      - name: Publish main package
+        run: cd packages/graphify-cli && npm publish --ignore-scripts --access public
