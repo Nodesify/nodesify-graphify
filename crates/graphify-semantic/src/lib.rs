@@ -177,8 +177,8 @@ impl SemanticBackend for ClaudeBackend {
                     }
 
                     let response_body = resp.into_body().read_to_string().unwrap_or_default();
-                    let response_json: serde_json::Value =
-                        serde_json::from_str(&response_body).map_err(|e| {
+                    let response_json: serde_json::Value = serde_json::from_str(&response_body)
+                        .map_err(|e| {
                             GraphifyError::Graph(format!(
                                 "Failed to parse Claude API response: {e}"
                             ))
@@ -195,13 +195,13 @@ impl SemanticBackend for ClaudeBackend {
                         return Ok(SemanticExtraction::empty());
                     }
 
-                    let extraction: SemanticExtraction =
-                        serde_json::from_str(text.trim()).unwrap_or_else(|_| {
+                    let extraction: SemanticExtraction = serde_json::from_str(text.trim())
+                        .unwrap_or_else(|_| {
                             if let Some(start) = text.find('{') {
                                 if let Some(end) = text.rfind('}') {
-                                    if let Ok(parsed) =
-                                        serde_json::from_str::<SemanticExtraction>(&text[start..=end])
-                                    {
+                                    if let Ok(parsed) = serde_json::from_str::<SemanticExtraction>(
+                                        &text[start..=end],
+                                    ) {
                                         return parsed;
                                     }
                                 }
