@@ -27,7 +27,7 @@ nodesify-graphify run <path>                                    # Full pipeline
 nodesify-graphify update <path>                                 # Incremental rebuild
 nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
-nodesify-graphify query <question> [--dfs] [--budget 2000] [--graph .]  # BFS/DFS traversal
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]                      # Shortest path
 nodesify-graphify stats [--graph .]                             # Graph statistics
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
