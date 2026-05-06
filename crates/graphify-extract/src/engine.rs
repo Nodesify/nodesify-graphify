@@ -958,7 +958,10 @@ fn extract_rst(path: &Path) -> Result<Extraction, GraphifyError> {
         let trimmed_text = text_line.trim();
         let is_heading = !trimmed_text.is_empty()
             && !under_line.trim().is_empty()
-            && under_line.trim().chars().all(|c| heading_chars.contains(&c))
+            && under_line
+                .trim()
+                .chars()
+                .all(|c| heading_chars.contains(&c))
             && under_line.trim().len() >= trimmed_text.len();
 
         if is_heading {

@@ -81,9 +81,11 @@ pub struct HistoryEntryJs {
 #[napi]
 pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let result = pipeline::run_pipeline(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let result =
+        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -98,9 +100,11 @@ pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
 #[napi]
 pub fn update_pipeline(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let result = pipeline::run_pipeline(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let result =
+        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -174,9 +178,11 @@ pub fn query_graph(
     budget: i64,
 ) -> napi::Result<QueryResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let db = pipeline::load_graph_db(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let (text, node_count, edge_count) =
         query::query_graph(&db, &db_path_str, &question, &mode, depth as usize, budget)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -190,9 +196,11 @@ pub fn query_graph(
 #[napi]
 pub fn find_path(root: String, source: String, target: String) -> napi::Result<PathResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let db = pipeline::load_graph_db(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let (found, hops, text) = query::find_shortest_path(&db, &db_path_str, &source, &target)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(PathResultJs {
@@ -205,9 +213,11 @@ pub fn find_path(root: String, source: String, target: String) -> napi::Result<P
 #[napi]
 pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<ExplainResultJs>> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let db = pipeline::load_graph_db(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let result = query::explain_with_neighbors(&db, &db_path_str, &node_id)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(result.map(|r| ExplainResultJs {
@@ -233,9 +243,11 @@ pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<Explai
 #[napi]
 pub fn cluster_only(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?);
-    let db = pipeline::load_graph_db(&root_pb)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     let cluster_result =
         graphify_cluster::cluster(&db).map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -344,7 +356,8 @@ mod tests {
     fn query_graph_empty_db_returns_no_nodes() {
         let db = open_db_in_memory().unwrap();
         let key = format!(":memory:empty_{}", std::process::id());
-        let (text, nodes, edges) = query::query_graph(&db, &key, "anything", "bfs", 3, 2000).unwrap();
+        let (text, nodes, edges) =
+            query::query_graph(&db, &key, "anything", "bfs", 3, 2000).unwrap();
         assert_eq!(text, "No nodes in graph.");
         assert_eq!(nodes, 0);
         assert_eq!(edges, 0);
@@ -355,7 +368,8 @@ mod tests {
         let db = open_db_in_memory().unwrap();
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatch_{}", std::process::id());
-        let (text, nodes, _) = query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000).unwrap();
+        let (text, nodes, _) =
+            query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000).unwrap();
         assert_eq!(text, "No matching nodes found.");
         assert_eq!(nodes, 0);
     }
@@ -431,7 +445,8 @@ mod tests {
         let db = open_db_in_memory().unwrap();
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatchpath_{}", std::process::id());
-        let (found, _, text) = query::find_shortest_path(&db, &key, "Alpha", "Nonexistent").unwrap();
+        let (found, _, text) =
+            query::find_shortest_path(&db, &key, "Alpha", "Nonexistent").unwrap();
         assert!(!found);
         assert!(text.contains("No matching node"));
     }
