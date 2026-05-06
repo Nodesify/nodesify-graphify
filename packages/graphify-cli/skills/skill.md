@@ -20,7 +20,7 @@ nodesify-graphify run <path>                                    # Full pipeline:
 nodesify-graphify update <path>                                 # Incremental AST-only rebuild (detects changed files via SHA-256 manifest)
 nodesify-graphify watch <path> [--debounce 3000]                # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]                    # Explain a node and list its connections
-nodesify-graphify query <question> [--dfs] [--budget 2000] [--graph .]  # BFS (default) or DFS traversal from matching nodes
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS (default) or DFS traversal from matching nodes
 nodesify-graphify path <A> <B> [--graph .]                      # Shortest path between two concepts
 nodesify-graphify stats [--graph .]                             # Show node/edge/community counts
 nodesify-graphify export [--graph .] [--out graph.json]         # Export graph to JSON
@@ -57,8 +57,8 @@ Use query commands instead of grep for architecture questions:
 # BFS (default) traversal matching "authentication"
 nodesify-graphify query "authentication flow"
 
-# DFS traversal with custom budget
-nodesify-graphify query "database connection" --dfs --budget 3000
+# DFS traversal with custom depth and budget
+nodesify-graphify query "database connection" --dfs --depth 3 --budget 3000
 
 # Shortest path between two concepts
 nodesify-graphify path "AuthService" "UserModel"

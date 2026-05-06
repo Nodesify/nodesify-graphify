@@ -1,7 +1,18 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, RwLock};
 
 use petgraph::graph::{NodeIndex, UnGraph};
 use rusqlite::Connection;
+
+/// Global cache of loaded graphs, keyed by normalized DB path.
+static GRAPH_CACHE: LazyLock<RwLock<HashMap<String, Arc<LoadedGraph>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Invalidate the cached graph for a given DB path. Called after pipeline runs.
+pub fn invalidate_graph_cache(db_path: &str) {
+    let mut cache = GRAPH_CACHE.write().unwrap();
+    cache.remove(db_path);
+}
 
 fn log_query(db: &Connection, question: &str, answer: &str) {
     let ts = std::time::SystemTime::now()
@@ -94,6 +105,22 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
     }
 
     Ok(LoadedGraph { graph, id_to_idx })
+}
+
+fn load_graph_cached(db: &Connection, db_path: &str) -> graphify_core::Result<Arc<LoadedGraph>> {
+    {
+        let cache = GRAPH_CACHE.read().unwrap();
+        if let Some(entry) = cache.get(db_path) {
+            return Ok(Arc::clone(entry));
+        }
+    }
+
+    let loaded = Arc::new(load_graph(db)?);
+    {
+        let mut cache = GRAPH_CACHE.write().unwrap();
+        cache.insert(db_path.to_string(), Arc::clone(&loaded));
+    }
+    Ok(loaded)
 }
 
 fn score_nodes(loaded: &LoadedGraph, terms: &[String]) -> Vec<(f64, NodeIndex)> {
@@ -273,12 +300,13 @@ fn shortest_path_bfs(
 
 pub fn query_graph(
     db: &Connection,
+    db_path: &str,
     question: &str,
     mode: &str,
     depth: usize,
     budget: i64,
 ) -> graphify_core::Result<(String, usize, usize)> {
-    let loaded = load_graph(db)?;
+    let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
         return Ok(("No nodes in graph.".to_string(), 0, 0));
     }
@@ -318,10 +346,11 @@ pub fn query_graph(
 
 pub fn find_shortest_path(
     db: &Connection,
+    db_path: &str,
     source_query: &str,
     target_query: &str,
 ) -> graphify_core::Result<(bool, usize, String)> {
-    let loaded = load_graph(db)?;
+    let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
         return Ok((false, 0, "No nodes in graph.".to_string()));
     }
@@ -391,9 +420,10 @@ pub fn find_shortest_path(
 
 pub fn explain_with_neighbors(
     db: &Connection,
+    db_path: &str,
     node_id: &str,
 ) -> graphify_core::Result<Option<ExplainResult>> {
-    let loaded = load_graph(db)?;
+    let loaded = load_graph_cached(db, db_path)?;
 
     let idx = match loaded.id_to_idx.get(node_id) {
         Some(&idx) => idx,

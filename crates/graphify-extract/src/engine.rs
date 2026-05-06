@@ -64,6 +64,21 @@ fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
     std::str::from_utf8(&source[range]).unwrap_or("")
 }
 
+/// Get the text of the first child of a node. Returns None if no children.
+fn first_child_text<'a>(node: &Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+    let mut cursor = node.walk();
+    let child = node.children(&mut cursor).next()?;
+    Some(node_text(&child, source))
+}
+
+/// Get the second child of a tree-sitter node.
+fn second_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    let child = node.children(&mut cursor).nth(1);
+    drop(cursor);
+    child
+}
+
 /// SHA-256 hash of the file contents.
 fn file_hash(path: &Path) -> Result<String, GraphifyError> {
     let bytes = std::fs::read(path)?;
@@ -195,19 +210,30 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
 
     // --- Imports ---
     if state.cfg.import_types.contains(&kind) {
-        let import_text = node_text(node, state.source);
-        let module_name = extract_import_module(import_text, kind, state.cfg.name);
-        if let Some(mod_name) = module_name {
-            let target_id = make_target_id(&mod_name);
-            state.edges.push(ExtractedEdge {
-                source: state.file_id.clone(),
-                target: target_id,
-                relation: "imports".to_string(),
-                confidence: "EXTRACTED".to_string(),
-                confidence_score: Some(1.0),
-                source_file: state.file_path.clone(),
-                source_line: Some(node.start_position().row as u32),
-            });
+        // Call-name filter: if import_call_names is non-empty, check first child text
+        let passes_filter = if state.cfg.import_call_names.is_empty() {
+            true
+        } else {
+            first_child_text(node, state.source)
+                .map(|t| state.cfg.import_call_names.contains(&t))
+                .unwrap_or(false)
+        };
+
+        if passes_filter {
+            let import_text = node_text(node, state.source);
+            let module_name = extract_import_module(import_text, kind, state.cfg.name);
+            if let Some(mod_name) = module_name {
+                let target_id = make_target_id(&mod_name);
+                state.edges.push(ExtractedEdge {
+                    source: state.file_id.clone(),
+                    target: target_id,
+                    relation: "imports".to_string(),
+                    confidence: "EXTRACTED".to_string(),
+                    confidence_score: Some(1.0),
+                    source_file: state.file_path.clone(),
+                    source_line: Some(node.start_position().row as u32),
+                });
+            }
         }
         // Still walk children for nested structures
         let mut cursor = node.walk();
@@ -219,75 +245,109 @@ fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
 
     // --- Classes / structs / enums ---
     if state.cfg.class_types.contains(&kind) {
-        let name_node = node.child_by_field_name(state.cfg.name_field);
-        if let Some(name_node) = name_node {
-            let name = node_text(&name_node, state.source).to_string();
-            let class_id = make_node_id(&[&state.file_id, &name]);
-            let docstring = extract_docstring(node, state.source, state.cfg);
+        // Call-name filter: if class_call_names is non-empty, check first child text
+        let passes_filter = if state.cfg.class_call_names.is_empty() {
+            true
+        } else {
+            first_child_text(node, state.source)
+                .map(|t| state.cfg.class_call_names.contains(&t))
+                .unwrap_or(false)
+        };
 
-            state.nodes.push(ExtractedNode {
-                id: class_id.clone(),
-                label: name.clone(),
-                source_file: state.file_path.clone(),
-                source_line: Some(node.start_position().row as u32),
-                docstring,
-                node_type: "class".to_string(),
-            });
+        if passes_filter {
+            // Try name_field first, then fall back to second child for call-based languages
+            let name_node = node.child_by_field_name(state.cfg.name_field);
+            let name_node = match name_node {
+                Some(n) => Some(n),
+                None if !state.cfg.class_call_names.is_empty() => second_child(node),
+                _ => None,
+            };
+            if let Some(name_node) = name_node {
+                let name = node_text(&name_node, state.source).to_string();
+                let class_id = make_node_id(&[&state.file_id, &name]);
+                let docstring = extract_docstring(node, state.source, state.cfg);
 
-            state.edges.push(ExtractedEdge {
-                source: state.file_id.clone(),
-                target: class_id.clone(),
-                relation: "contains".to_string(),
-                confidence: "EXTRACTED".to_string(),
-                confidence_score: Some(1.0),
-                source_file: state.file_path.clone(),
-                source_line: Some(node.start_position().row as u32),
-            });
+                state.nodes.push(ExtractedNode {
+                    id: class_id.clone(),
+                    label: name.clone(),
+                    source_file: state.file_path.clone(),
+                    source_line: Some(node.start_position().row as u32),
+                    docstring,
+                    node_type: "class".to_string(),
+                });
 
-            // Walk children inside this class context
-            let prev_class = state.current_class_id.replace(class_id);
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                walk_structural(state, &child);
+                state.edges.push(ExtractedEdge {
+                    source: state.file_id.clone(),
+                    target: class_id.clone(),
+                    relation: "contains".to_string(),
+                    confidence: "EXTRACTED".to_string(),
+                    confidence_score: Some(1.0),
+                    source_file: state.file_path.clone(),
+                    source_line: Some(node.start_position().row as u32),
+                });
+
+                // Walk children inside this class context
+                let prev_class = state.current_class_id.replace(class_id);
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    walk_structural(state, &child);
+                }
+                state.current_class_id = prev_class;
+                return;
             }
-            state.current_class_id = prev_class;
-            return;
         }
     }
 
     // --- Functions / methods ---
     if state.cfg.function_types.contains(&kind) {
-        let name_node = node.child_by_field_name(state.cfg.name_field);
-        if let Some(name_node) = name_node {
-            let name = node_text(&name_node, state.source).to_string();
-            let func_label = format!("{}()", name);
-            let parent_id = state.current_class_id.as_deref().unwrap_or(&state.file_id);
-            let func_id = make_node_id(&[parent_id, &name]);
+        // Call-name filter: if function_call_names is non-empty, check first child text
+        let passes_filter = if state.cfg.function_call_names.is_empty() {
+            true
+        } else {
+            first_child_text(node, state.source)
+                .map(|t| state.cfg.function_call_names.contains(&t))
+                .unwrap_or(false)
+        };
 
-            let docstring = extract_docstring(node, state.source, state.cfg);
+        if passes_filter {
+            // Try name_field first, then fall back to second child for call-based languages
+            let name_node = node.child_by_field_name(state.cfg.name_field);
+            let name_node = match name_node {
+                Some(n) => Some(n),
+                None if !state.cfg.function_call_names.is_empty() => second_child(node),
+                _ => None,
+            };
+            if let Some(name_node) = name_node {
+                let name = node_text(&name_node, state.source).to_string();
+                let func_label = format!("{}()", name);
+                let parent_id = state.current_class_id.as_deref().unwrap_or(&state.file_id);
+                let func_id = make_node_id(&[parent_id, &name]);
 
-            state.nodes.push(ExtractedNode {
-                id: func_id.clone(),
-                label: func_label,
-                source_file: state.file_path.clone(),
-                source_line: Some(node.start_position().row as u32),
-                docstring,
-                node_type: "function".to_string(),
-            });
+                let docstring = extract_docstring(node, state.source, state.cfg);
 
-            state.edges.push(ExtractedEdge {
-                source: parent_id.to_string(),
-                target: func_id.clone(),
-                relation: "contains".to_string(),
-                confidence: "EXTRACTED".to_string(),
-                confidence_score: Some(1.0),
-                source_file: state.file_path.clone(),
-                source_line: Some(node.start_position().row as u32),
-            });
+                state.nodes.push(ExtractedNode {
+                    id: func_id.clone(),
+                    label: func_label,
+                    source_file: state.file_path.clone(),
+                    source_line: Some(node.start_position().row as u32),
+                    docstring,
+                    node_type: "function".to_string(),
+                });
 
-            // Pass 2 inline: walk function body for call expressions
-            if let Some(body) = find_body(node, state.cfg) {
-                walk_calls(state, &func_id, &body);
+                state.edges.push(ExtractedEdge {
+                    source: parent_id.to_string(),
+                    target: func_id.clone(),
+                    relation: "contains".to_string(),
+                    confidence: "EXTRACTED".to_string(),
+                    confidence_score: Some(1.0),
+                    source_file: state.file_path.clone(),
+                    source_line: Some(node.start_position().row as u32),
+                });
+
+                // Pass 2 inline: walk function body for call expressions
+                if let Some(body) = find_body(node, state.cfg) {
+                    walk_calls(state, &func_id, &body);
+                }
             }
         }
 
@@ -415,6 +475,20 @@ fn extract_import_module(text: &str, kind: &str, language: &str) -> Option<Strin
                 .split(&['"', '\'', ')'][..])
                 .next()
                 .unwrap_or("");
+            if !module.is_empty() {
+                return Some(module.to_string());
+            }
+            None
+        }
+        ("Elixir", "call") => {
+            // Elixir imports: use MyModule, import MyModule, alias My.Module, require MyModule
+            let cleaned = text.trim();
+            let keyword = cleaned.split_whitespace().next()?;
+            if !matches!(keyword, "use" | "import" | "alias" | "require") {
+                return None;
+            }
+            let after_keyword = cleaned.trim_start_matches(keyword).trim();
+            let module = after_keyword.split(&[' ', ',', '.'][..]).next()?;
             if !module.is_empty() {
                 return Some(module.to_string());
             }
@@ -634,6 +708,12 @@ fn extract_single(path: &Path, cfg: &LanguageConfig) -> Result<Extraction, Graph
 
 fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
     let content = std::fs::read_to_string(path)?;
+    Ok(extract_markdown_from_string(path, "markdown", &content))
+}
+
+/// Extract markdown-style structure from a string. Used for both .md/.mdx files
+/// and PDF files (converted to markdown).
+fn extract_markdown_from_string(path: &Path, language: &str, content: &str) -> Extraction {
     let fid = file_stem(path);
     let file_id = make_node_id(&[&fid]);
 
@@ -737,9 +817,202 @@ fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
         }
     }
 
+    Extraction {
+        file_path: path.to_path_buf(),
+        language: language.to_string(),
+        nodes,
+        edges,
+    }
+}
+
+/// Extract structure from plain text files (.txt).
+fn extract_text_file(path: &Path, language: &str) -> Result<Extraction, GraphifyError> {
+    let content = std::fs::read_to_string(path)?;
+    let fid = file_stem(path);
+    let file_id = make_node_id(&[&fid]);
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    nodes.push(ExtractedNode {
+        id: file_id.clone(),
+        label: path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        source_file: path.to_path_buf(),
+        source_line: None,
+        docstring: None,
+        node_type: "document".to_string(),
+    });
+
+    let mut line_no = 0u32;
+    let mut para_index = 0u32;
+    let mut current_para_start: Option<(u32, String)> = None;
+
+    for line in content.lines() {
+        line_no += 1;
+        if line.trim().is_empty() {
+            if let Some((start_line, text)) = current_para_start.take() {
+                let label = if text.len() > 80 {
+                    format!("{}...", &text[..77])
+                } else {
+                    text
+                };
+                let section_id = make_node_id(&[&fid, &format!("p{}", para_index)]);
+
+                nodes.push(ExtractedNode {
+                    id: section_id.clone(),
+                    label,
+                    source_file: path.to_path_buf(),
+                    source_line: Some(start_line),
+                    docstring: None,
+                    node_type: "section".to_string(),
+                });
+                edges.push(ExtractedEdge {
+                    source: file_id.clone(),
+                    target: section_id,
+                    relation: "contains".to_string(),
+                    confidence: "EXTRACTED".to_string(),
+                    confidence_score: Some(1.0),
+                    source_file: path.to_path_buf(),
+                    source_line: Some(start_line),
+                });
+                para_index += 1;
+            }
+        } else {
+            if current_para_start.is_none() {
+                current_para_start = Some((line_no, line.trim().to_string()));
+            }
+        }
+    }
+    // Handle trailing paragraph
+    if let Some((start_line, text)) = current_para_start.take() {
+        let label = if text.len() > 80 {
+            format!("{}...", &text[..77])
+        } else {
+            text
+        };
+        let section_id = make_node_id(&[&fid, &format!("p{}", para_index)]);
+        nodes.push(ExtractedNode {
+            id: section_id.clone(),
+            label,
+            source_file: path.to_path_buf(),
+            source_line: Some(start_line),
+            docstring: None,
+            node_type: "section".to_string(),
+        });
+        edges.push(ExtractedEdge {
+            source: file_id.clone(),
+            target: section_id,
+            relation: "contains".to_string(),
+            confidence: "EXTRACTED".to_string(),
+            confidence_score: Some(1.0),
+            source_file: path.to_path_buf(),
+            source_line: Some(start_line),
+        });
+    }
+
     Ok(Extraction {
         file_path: path.to_path_buf(),
-        language: "markdown".to_string(),
+        language: language.to_string(),
+        nodes,
+        edges,
+    })
+}
+
+/// Extract structure from reStructuredText files (.rst).
+fn extract_rst(path: &Path) -> Result<Extraction, GraphifyError> {
+    let content = std::fs::read_to_string(path)?;
+    let fid = file_stem(path);
+    let file_id = make_node_id(&[&fid]);
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    nodes.push(ExtractedNode {
+        id: file_id.clone(),
+        label: path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        source_file: path.to_path_buf(),
+        source_line: None,
+        docstring: None,
+        node_type: "document".to_string(),
+    });
+
+    let lines: Vec<&str> = content.lines().collect();
+    let heading_chars: &[char] = &['=', '-', '~', '^', '"'];
+
+    // Track heading nesting: stack of (underline_char, id)
+    let mut heading_stack: Vec<(char, String)> = Vec::new();
+
+    let mut i = 0;
+    while i + 1 < lines.len() {
+        let text_line = lines[i];
+        let under_line = lines[i + 1];
+
+        let trimmed_text = text_line.trim();
+        let is_heading = !trimmed_text.is_empty()
+            && !under_line.trim().is_empty()
+            && under_line
+                .trim()
+                .chars()
+                .all(|c| heading_chars.contains(&c))
+            && under_line.trim().len() >= trimmed_text.len();
+
+        if is_heading {
+            let ch = under_line.trim().chars().next().unwrap_or('=');
+            let title = trimmed_text.to_string();
+            let slug = make_target_id(&title);
+            let section_id = make_node_id(&[&fid, &slug]);
+
+            nodes.push(ExtractedNode {
+                id: section_id.clone(),
+                label: title,
+                source_file: path.to_path_buf(),
+                source_line: Some(i as u32 + 1),
+                docstring: None,
+                node_type: "section".to_string(),
+            });
+
+            // Pop stack until we find a parent with a different (higher-rank) char
+            let char_rank = |c: char| heading_chars.iter().position(|&h| h == c).unwrap_or(0);
+            while let Some((parent_ch, _)) = heading_stack.last() {
+                if char_rank(*parent_ch) < char_rank(ch) {
+                    break;
+                }
+                heading_stack.pop();
+            }
+
+            let parent_id = heading_stack
+                .last()
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| file_id.clone());
+
+            edges.push(ExtractedEdge {
+                source: parent_id,
+                target: section_id.clone(),
+                relation: "contains".to_string(),
+                confidence: "EXTRACTED".to_string(),
+                confidence_score: Some(1.0),
+                source_file: path.to_path_buf(),
+                source_line: Some(i as u32 + 1),
+            });
+
+            heading_stack.push((ch, section_id));
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+
+    Ok(Extraction {
+        file_path: path.to_path_buf(),
+        language: "rst".to_string(),
         nodes,
         edges,
     })
@@ -766,6 +1039,49 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
             let extraction = extract_markdown(file_path)?;
             save_cache(db, file_path, &hash, &extraction);
             results.push(extraction);
+            continue;
+        }
+
+        // PDF: extract text via graphify-pdf, then parse as markdown
+        if ext == "pdf" {
+            if let Some(cached) = check_cache(db, file_path, &hash) {
+                results.push(cached);
+                continue;
+            }
+            match graphify_pdf::extract_to_markdown(file_path) {
+                Ok(md_text) if !md_text.trim().is_empty() => {
+                    let extraction = extract_markdown_from_string(file_path, "pdf", &md_text);
+                    save_cache(db, file_path, &hash, &extraction);
+                    results.push(extraction);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        // Plain text: paragraph-based extraction
+        if ext == "txt" {
+            if let Some(cached) = check_cache(db, file_path, &hash) {
+                results.push(cached);
+                continue;
+            }
+            if let Ok(extraction) = extract_text_file(file_path, "text") {
+                save_cache(db, file_path, &hash, &extraction);
+                results.push(extraction);
+            }
+            continue;
+        }
+
+        // reStructuredText: heading-based extraction
+        if ext == "rst" {
+            if let Some(cached) = check_cache(db, file_path, &hash) {
+                results.push(cached);
+                continue;
+            }
+            if let Ok(extraction) = extract_rst(file_path) {
+                save_cache(db, file_path, &hash, &extraction);
+                results.push(extraction);
+            }
             continue;
         }
 

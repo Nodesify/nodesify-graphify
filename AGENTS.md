@@ -6,9 +6,9 @@ Rust rewrite of graphify — turns any folder into a queryable knowledge graph. 
 
 Rust workspace (8 crates) + Node.js CLI:
 
-- `crates/graphify-core` — types (`FileType`, `Relation`, `Confidence`), `GraphifyError`, SQLite schema (6 tables)
+- `crates/graphify-core` — shared types (`FileType`, `Relation`, `Confidence`), `GraphifyError`, SQLite schema
 - `crates/graphify-detect` — file discovery, classification, incremental change detection via SHA-256 manifest
-- `crates/graphify-extract` — tree-sitter AST extraction (Python, JS, TS, Rust, Go, Java, C, C++), per-language configs in `src/langs/`. Extraction schema types (`Extraction`, `ExtractedNode`, `ExtractedEdge`) in `src/schema.rs` — these are the actual data shapes passed between pipeline stages, distinct from the core `Node`/`Edge` types.
+- `crates/graphify-extract` — tree-sitter AST extraction (21 languages), per-language configs in `src/langs/`
 - `crates/graphify-build` — merge extractions into SQLite graph with deduplication
 - `crates/graphify-cluster` — label propagation community detection (petgraph)
 - `crates/graphify-analyze` — god nodes, surprising cross-community connections, suggested questions
@@ -22,18 +22,25 @@ Persistence: single `.graphify/db.sqlite` (extraction cache, file manifest, node
 
 ### CLI commands
 
-```
+```bash
 nodesify-graphify run <path>                                    # Full pipeline
 nodesify-graphify update <path>                                 # Incremental rebuild
-nodesify-graphify watch <path> [--debounce 3000]                # File watcher (Node.js-side)
+nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
-nodesify-graphify query <question> [--dfs] [--budget 2000] [--graph .]  # BFS/DFS traversal
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]                      # Shortest path
 nodesify-graphify stats [--graph .]                             # Graph statistics
-nodesify-graphify export [--graph .] [--out graph.json]         # Export to JSON
-nodesify-graphify install [--platform Codex|codex|gemini|...]  # Install AI platform skill files
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
+nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs
+nodesify-graphify diff <pathA> <pathB>                          # Compare two graphs
+nodesify-graphify history [--limit 20] [--graph .]              # Show recent query history
+nodesify-graphify install [--platform claude|gemini|...]        # Install AI platform skill files
 nodesify-graphify hook install|uninstall|status                 # Git hook management
 ```
+
+### Supported languages
+
+Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS. (Note: Kotlin support is currently disabled).
 
 ### Build
 

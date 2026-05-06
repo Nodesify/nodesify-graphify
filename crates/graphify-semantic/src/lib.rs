@@ -144,50 +144,85 @@ impl SemanticBackend for ClaudeBackend {
         let body = self.build_request_body(content, file_type);
         let body_str = serde_json::to_string(&body)?;
 
-        let response = self
-            .agent
-            .post("https://api.anthropic.com/v1/messages")
-            .header("Content-Type", "application/json")
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .send(&body_str)
-            .map_err(|e| GraphifyError::Graph(format!("Claude API request failed: {e}")))?;
+        let max_retries = 3;
+        let mut last_err = None;
 
-        let response_body = response.into_body().read_to_string().unwrap_or_default();
-        let response_json: serde_json::Value =
-            serde_json::from_str(&response_body).map_err(|e| {
-                GraphifyError::Graph(format!("Failed to parse Claude API response: {e}"))
-            })?;
+        for attempt in 0..=max_retries {
+            let response = self
+                .agent
+                .post("https://api.anthropic.com/v1/messages")
+                .header("Content-Type", "application/json")
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .send(&body_str);
 
-        // Extract the text content from the response.
-        let text = response_json
-            .get("content")
-            .and_then(|c| c.get(0))
-            .and_then(|block| block.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
-
-        if text.is_empty() {
-            return Ok(SemanticExtraction::empty());
-        }
-
-        // Parse the JSON from the model's response.
-        let extraction: SemanticExtraction =
-            serde_json::from_str(text.trim()).unwrap_or_else(|_| {
-                // Try to find a JSON object within the text in case the model wrapped it.
-                if let Some(start) = text.find('{') {
-                    if let Some(end) = text.rfind('}') {
-                        if let Ok(parsed) =
-                            serde_json::from_str::<SemanticExtraction>(&text[start..=end])
-                        {
-                            return parsed;
+            match response {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_client_error() && status.as_u16() != 429 {
+                        let response_body = resp.into_body().read_to_string().unwrap_or_default();
+                        return Err(GraphifyError::Graph(format!(
+                            "Claude API returned {}: {}",
+                            status, response_body
+                        )));
+                    }
+                    if status.is_server_error() || status.as_u16() == 429 {
+                        last_err = Some(format!("Claude API returned {}", status));
+                        if attempt < max_retries {
+                            let delay = Duration::from_millis(500 * 2u64.pow(attempt as u32));
+                            std::thread::sleep(delay);
+                            continue;
                         }
+                        return Err(GraphifyError::Graph(last_err.unwrap()));
+                    }
+
+                    let response_body = resp.into_body().read_to_string().unwrap_or_default();
+                    let response_json: serde_json::Value = serde_json::from_str(&response_body)
+                        .map_err(|e| {
+                            GraphifyError::Graph(format!(
+                                "Failed to parse Claude API response: {e}"
+                            ))
+                        })?;
+
+                    let text = response_json
+                        .get("content")
+                        .and_then(|c| c.get(0))
+                        .and_then(|block| block.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+
+                    if text.is_empty() {
+                        return Ok(SemanticExtraction::empty());
+                    }
+
+                    let extraction: SemanticExtraction = serde_json::from_str(text.trim())
+                        .unwrap_or_else(|_| {
+                            if let Some(start) = text.find('{') {
+                                if let Some(end) = text.rfind('}') {
+                                    if let Ok(parsed) = serde_json::from_str::<SemanticExtraction>(
+                                        &text[start..=end],
+                                    ) {
+                                        return parsed;
+                                    }
+                                }
+                            }
+                            SemanticExtraction::empty()
+                        });
+
+                    return Ok(extraction);
+                }
+                Err(e) => {
+                    last_err = Some(format!("Claude API request failed: {e}"));
+                    if attempt < max_retries {
+                        let delay = Duration::from_millis(500 * 2u64.pow(attempt as u32));
+                        std::thread::sleep(delay);
+                        continue;
                     }
                 }
-                SemanticExtraction::empty()
-            });
+            }
+        }
 
-        Ok(extraction)
+        Err(GraphifyError::Graph(last_err.unwrap()))
     }
 }
 

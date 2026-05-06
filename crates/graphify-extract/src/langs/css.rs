@@ -12,6 +12,9 @@ pub fn config() -> &'static LanguageConfig {
         name_field: "name",         // not heavily used for CSS but consistent with API
         body_field: Some("block"),
         body_fallback_types: &[],
+        class_call_names: &[],
+        function_call_names: &[],
+        import_call_names: &[],
     };
     &CONFIG
 }

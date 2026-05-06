@@ -12,6 +12,9 @@ pub fn config() -> &'static LanguageConfig {
         name_field: "declarator",
         body_field: Some("body"),
         body_fallback_types: &["compound_statement"],
+        class_call_names: &[],
+        function_call_names: &[],
+        import_call_names: &[],
     };
     &CONFIG
 }
@@ -28,6 +31,9 @@ pub fn cpp_config() -> &'static LanguageConfig {
         name_field: "declarator",
         body_field: Some("body"),
         body_fallback_types: &["compound_statement"],
+        class_call_names: &[],
+        function_call_names: &[],
+        import_call_names: &[],
     };
     &CONFIG
 }

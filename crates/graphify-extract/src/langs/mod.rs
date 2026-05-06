@@ -46,8 +46,7 @@ pub fn all_languages() -> Vec<&'static LanguageConfig> {
         c::cpp_config(),
         ruby::config(),
         swift::config(),
-        // kotlin::config() — disabled: tree-sitter-kotlin 0.3 depends on tree-sitter 0.20,
-        // incompatible with our tree-sitter 0.25. Re-enable once a compatible version is released.
+        kotlin::config(),
         scala::config(),
         php::config(),
         c_sharp::config(),

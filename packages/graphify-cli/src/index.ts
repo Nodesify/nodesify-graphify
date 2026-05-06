@@ -55,6 +55,7 @@ program
   .argument('<question>', 'Search terms')
   .option('--graph <path>', 'Path to project root', '.')
   .option('--dfs', 'Use depth-first search instead of breadth-first')
+  .option('--depth <n>', 'Traversal depth', '2')
   .option('--budget <n>', 'Token budget for output', '2000')
   .action(queryCommand);
 

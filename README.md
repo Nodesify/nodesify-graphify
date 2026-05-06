@@ -17,12 +17,15 @@ nodesify-graphify run <path>                            # Full pipeline: detect 
 nodesify-graphify update <path>                         # Incremental rebuild (only changed files)
 nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
-nodesify-graphify query <question> [--dfs] [--budget 2000] [--graph .]  # BFS/DFS traversal
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]              # Shortest path between two concepts
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
-nodesify-graphify export [--graph .] [--out graph.json] # Export graph to JSON
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
+nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
+nodesify-graphify diff <pathA> <pathB>                  # Compare two graphs
+nodesify-graphify history [--limit 20] [--graph .]      # Show recent query history
 nodesify-graphify install [--platform claude]           # Install skill files for AI coding assistants
-nodesify-graphify hook install                          # Install git post-commit/post-checkout hooks
+nodesify-graphify hook install|uninstall|status         # Git hook management
 ```
 
 Supported platforms for `install`: `claude`, `codex`, `gemini`, `cursor`, `copilot`, `aider`, `opencode`, `kiro`, `trae`.
@@ -83,7 +86,9 @@ Each crate has unit tests using in-memory SQLite (`open_db_in_memory()`) and `te
 
 ## Language support
 
-Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Kotlin, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS — via tree-sitter grammars. Each language has its own config module in `crates/graphify-extract/src/langs/`. Adding a new language means adding a new file there and registering it in `langs/mod.rs`.
+Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS — via tree-sitter grammars. (Note: Kotlin support is currently disabled due to tree-sitter version incompatibility).
+
+Each language has its own config module in `crates/graphify-extract/src/langs/`. Adding a new language means adding a new file there and registering it in `langs/mod.rs`.
 
 ## License
 

@@ -13,7 +13,9 @@ pub struct NodeAnalysis {
 #[derive(Debug, Clone)]
 pub struct SurprisingEdge {
     pub source: String,
+    pub source_label: String,
     pub target: String,
+    pub target_label: String,
     pub relation: String,
     pub source_community: Option<u32>,
     pub target_community: Option<u32>,
@@ -72,7 +74,7 @@ fn compute_god_nodes(db: &Connection) -> graphify_core::Result<Vec<NodeAnalysis>
 
 fn compute_surprising_connections(db: &Connection) -> graphify_core::Result<Vec<SurprisingEdge>> {
     let mut stmt = db.prepare(
-        "SELECT e.source, e.target, e.relation, s.community, t.community
+        "SELECT e.source, s.label, e.target, t.label, e.relation, s.community, t.community
          FROM edges e
          JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target
          WHERE s.community IS NOT NULL AND t.community IS NOT NULL AND s.community != t.community",
@@ -81,10 +83,12 @@ fn compute_surprising_connections(db: &Connection) -> graphify_core::Result<Vec<
         .query_map([], |row| {
             Ok(SurprisingEdge {
                 source: row.get(0)?,
-                target: row.get(1)?,
-                relation: row.get(2)?,
-                source_community: row.get::<_, Option<i64>>(3)?.map(|c| c as u32),
-                target_community: row.get::<_, Option<i64>>(4)?.map(|c| c as u32),
+                source_label: row.get(1)?,
+                target: row.get(2)?,
+                target_label: row.get(3)?,
+                relation: row.get(4)?,
+                source_community: row.get::<_, Option<i64>>(5)?.map(|c| c as u32),
+                target_community: row.get::<_, Option<i64>>(6)?.map(|c| c as u32),
             })
         })?
         .filter_map(|r| r.ok())
