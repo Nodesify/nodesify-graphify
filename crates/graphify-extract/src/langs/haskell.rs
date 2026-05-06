@@ -12,6 +12,9 @@ pub fn config() -> &'static LanguageConfig {
         name_field: "name",
         body_field: None,
         body_fallback_types: &["exp", "bind", "guard"], // Haskell bodies are expressions
+        class_call_names: &[],
+        function_call_names: &[],
+        import_call_names: &[],
     };
     &CONFIG
 }

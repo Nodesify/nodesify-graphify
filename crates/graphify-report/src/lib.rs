@@ -59,8 +59,8 @@ pub fn generate_report(
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "?".into());
             report.push_str(&format!(
-                "- {} -> {} ({}) [community {} -> {}]\n",
-                edge.source, edge.target, edge.relation, sc, tc
+                "- **{}** -> **{}** ({}) [community {} -> {}]\n",
+                edge.source_label, edge.target_label, edge.relation, sc, tc
             ));
         }
         report.push('\n');
@@ -98,7 +98,9 @@ mod tests {
             }],
             surprising_connections: vec![SurprisingEdge {
                 source: "a".into(),
+                source_label: "Alpha".into(),
                 target: "b".into(),
+                target_label: "Beta".into(),
                 relation: "calls".into(),
                 source_community: Some(0),
                 target_community: Some(1),
@@ -109,6 +111,7 @@ mod tests {
         let report = generate_report(&db, &analysis).unwrap();
         assert!(report.contains("# Graph Report"));
         assert!(report.contains("Alpha"));
+        assert!(report.contains("**Alpha** -> **Beta** (calls)"));
         assert!(report.contains("Surprising Connections"));
         assert!(report.contains("Suggested Questions"));
     }
