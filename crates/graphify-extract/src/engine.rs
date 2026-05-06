@@ -1065,12 +1065,9 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
                 results.push(cached);
                 continue;
             }
-            match extract_text_file(file_path, "text") {
-                Ok(extraction) => {
-                    save_cache(db, file_path, &hash, &extraction);
-                    results.push(extraction);
-                }
-                Err(_) => {}
+            if let Ok(extraction) = extract_text_file(file_path, "text") {
+                save_cache(db, file_path, &hash, &extraction);
+                results.push(extraction);
             }
             continue;
         }
@@ -1081,12 +1078,9 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
                 results.push(cached);
                 continue;
             }
-            match extract_rst(file_path) {
-                Ok(extraction) => {
-                    save_cache(db, file_path, &hash, &extraction);
-                    results.push(extraction);
-                }
-                Err(_) => {}
+            if let Ok(extraction) = extract_rst(file_path) {
+                save_cache(db, file_path, &hash, &extraction);
+                results.push(extraction);
             }
             continue;
         }
