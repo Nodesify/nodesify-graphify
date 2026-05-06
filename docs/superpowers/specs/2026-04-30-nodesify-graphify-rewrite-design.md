@@ -443,7 +443,7 @@ Node.js CLI package.
 | `nodesify-graphify run <path>` | Full pipeline |
 | `nodesify-graphify update <path>` | Incremental update |
 | `nodesify-graphify watch <path>` | Watch for file changes, auto-rebuild [Actual: implemented in Node.js, not Rust] |
-| `nodesify-graphify query "<question>"` | BFS/DFS traversal (`--dfs`, `--budget N`, `--graph`) |
+| `nodesify-graphify query "<question>"` | BFS/DFS traversal (`--dfs`, `--depth N`, `--budget N`, `--graph`) |
 | `nodesify-graphify path "A" "B"` | Shortest path (`--graph`) |
 | `nodesify-graphify explain "X"` | Node explanation (`--graph`) |
 | `nodesify-graphify stats` | Graph statistics (`--graph`) |
