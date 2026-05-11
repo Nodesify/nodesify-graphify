@@ -7,12 +7,8 @@ async function queryCommand(question, opts) {
         const mode = opts.dfs ? 'dfs' : 'bfs';
         const depth = parseInt(opts.depth || '2', 10);
         const budget = parseInt(opts.budget || '2000', 10);
-        const cursor = parseInt(opts.cursor || '0', 10) || 0;
-        const result = (0, native_1.queryGraph)(opts.graph, question, mode, depth, budget, opts.directed ?? false, opts.detail, cursor);
+        const result = (0, native_1.queryGraph)(opts.graph, question, mode, depth, budget);
         console.log(result.text);
-        if (result.graphBuiltAt) {
-            console.log(`# graph built at ${result.graphBuiltAt}`);
-        }
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

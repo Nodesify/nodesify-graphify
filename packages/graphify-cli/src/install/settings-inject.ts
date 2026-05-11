@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+const CONTEXT_MSG_RAW = 'nodesify-graphify: Knowledge graph available. MUST read .graphify/graph_report.md before searching raw files. Use `nodesify-graphify query` instead of grep for architecture questions.';
+const CONTEXT_MSG = CONTEXT_MSG_RAW.replace(/'/g, "\\'");
+
 function readJson(filePath: string): any {
   if (!fs.existsSync(filePath)) return {};
   try {
@@ -20,12 +23,11 @@ function writeJson(filePath: string, data: any) {
 
 // ---- Claude Code (.claude/settings.json) ----
 
-const CLAUDE_POST_UPDATE_HOOK = {
-  matcher: 'Edit|Write',
+const CLAUDE_HOOK = {
+  matcher: 'Grep|Glob|Read',
   hooks: [{
     type: 'command',
-    // Detached and debounced so editing never waits for a graph rebuild.
-    command: `node -e "const fs=require('fs'),cp=require('child_process'),path=require('path');try{const root=cp.execSync('git rev-parse --show-toplevel',{encoding:'utf8'}).trim();const stamp=path.join(root,'.graphify','.posttool-update');if(fs.existsSync(stamp)&&Date.now()-fs.statSync(stamp).mtimeMs<120000)process.exit(0);fs.mkdirSync(path.dirname(stamp),{recursive:true});fs.writeFileSync(stamp,String(Date.now()));const cli=fs.existsSync(path.join(root,'packages','graphify-cli','dist','index.js'))?'node packages/graphify-cli/dist/index.js update .':'npx --no-install nodesify-graphify update .';cp.spawn(cli,{cwd:root,shell:true,detached:true,stdio:'ignore'}).unref()}catch{}"`,
+    command: `node -e "if(require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}"`,
   }],
 };
 
@@ -36,17 +38,14 @@ export function injectClaudeHook(projectDir: string): boolean {
   if (!data.hooks.PreToolUse) data.hooks.PreToolUse = [];
 
   const existing = data.hooks.PreToolUse as any[];
-  const hadLegacy = existing.some((h: any) => JSON.stringify(h.hooks).includes('graphify'));
+  const alreadyExists = existing.some((h: any) =>
+    h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify')
+  );
+  if (alreadyExists) return false;
 
-  // Remove legacy graphify PreToolUse nags when upgrading.
-  data.hooks.PreToolUse = existing.filter((h: any) => !JSON.stringify(h.hooks).includes('graphify'));
-  if (data.hooks.PreToolUse.length === 0) delete data.hooks.PreToolUse;
-  const post = data.hooks.PostToolUse || [];
-  const hadPost = post.some((h: any) => JSON.stringify(h.hooks).includes('graphify'));
-  if (!hadPost) post.push(CLAUDE_POST_UPDATE_HOOK);
-  data.hooks.PostToolUse = post;
+  existing.push(CLAUDE_HOOK);
   writeJson(settingsPath, data);
-  return !hadPost || hadLegacy;
+  return true;
 }
 
 export function removeClaudeHook(projectDir: string): boolean {
@@ -54,22 +53,21 @@ export function removeClaudeHook(projectDir: string): boolean {
   if (!fs.existsSync(settingsPath)) return false;
 
   const data = readJson(settingsPath);
-  if (!data.hooks) return false;
+  if (!data.hooks?.PreToolUse) return false;
 
-  const before = JSON.stringify(data.hooks);
-  for (const event of ['PreToolUse', 'PostToolUse']) {
-    if (data.hooks[event]) {
-      data.hooks[event] = (data.hooks[event] as any[]).filter((h: any) =>
-        !JSON.stringify(h.hooks).includes('graphify')
-      );
-      if (data.hooks[event].length === 0) delete data.hooks[event];
-    }
+  const before = data.hooks.PreToolUse.length;
+  data.hooks.PreToolUse = (data.hooks.PreToolUse as any[]).filter((h: any) =>
+    !(h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify'))
+  );
+
+  if (data.hooks.PreToolUse.length === 0) {
+    delete data.hooks.PreToolUse;
   }
   if (Object.keys(data.hooks).length === 0) {
     delete data.hooks;
   }
   writeJson(settingsPath, data);
-  return JSON.stringify(data.hooks) !== before;
+  return data.hooks?.PreToolUse?.length !== before;
 }
 
 // ---- Codex (.codex/hooks.json) ----
@@ -90,7 +88,7 @@ export function injectCodexHook(projectDir: string): boolean {
     matcher: 'Bash',
     hooks: [{
       type: 'command',
-      command: `node -e "const fs=require('fs');const p='.graphify/graph.json';if(!fs.existsSync(p)){process.exit(0)}const msg='nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.';process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:msg}}))"`,
+      command: `node -e "if(require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}"`,
     }],
   });
   writeJson(hooksPath, data);
@@ -130,7 +128,7 @@ export function injectGeminiHook(projectDir: string): boolean {
     matcher: 'read_file|list_directory',
     hooks: [{
       type: 'command',
-      command: `node -e "const fs=require('fs');const p='.graphify/graph.json';var r={decision:'allow'};if(fs.existsSync(p)){r.additionalContext='nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.'}process.stdout.write(JSON.stringify(r))"`,
+      command: `node -e "var r={decision:'allow'};if(require('fs').existsSync('.graphify/graph.json')){r.additionalContext='${CONTEXT_MSG}'}process.stdout.write(JSON.stringify(r))"`,
     }],
   });
   writeJson(settingsPath, data);

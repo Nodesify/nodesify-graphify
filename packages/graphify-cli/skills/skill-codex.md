@@ -5,38 +5,30 @@ description: Turn any directory into a queryable knowledge graph. Trigger: /grap
 
 # graphify skill (Codex)
 
-When the user types `/graphify`, run the nodesify-graphify knowledge graph pipeline.
+When the user types `/graphify`, this skill runs the nodesify-graphify knowledge graph pipeline.
 
-## Step 1 - Build or update the graph
+## Important: Always Use Graphify First
 
-Run via Bash:
-```bash
-node -e "const fs=require('fs');if(!fs.existsSync('.graphify/graph.json')){console.log('missing')}else{const age=Math.round((Date.now()-fs.statSync('.graphify/graph.json').mtimeMs)/60000);console.log(age>30?'stale':'fresh')}"
+When working in a project with a `.graphify/` directory:
+
+1. Before reading or searching source files, read `.graphify/graph_report.md` for architecture context
+2. Use `nodesify-graphify query`, `nodesify-graphify explain`, or `nodesify-graphify path` instead of shell commands (cat, grep, find) for codebase questions
+3. Only read individual source files when graphify queries don't provide enough detail
+
+## Commands
+
+```
+nodesify-graphify run <path>          # Full pipeline
+nodesify-graphify update <path>       # Incremental rebuild
+nodesify-graphify explain <node>      # Explain node + connections
+nodesify-graphify query <question>    # BFS/DFS traversal
+nodesify-graphify path <A> <B>        # Shortest path
+nodesify-graphify stats               # Graph statistics
 ```
 
-- `missing` → run `nodesify-graphify run .`
-- `stale` → run `nodesify-graphify update .`
-- `fresh` → skip to Step 2
+## Usage
 
-## Step 2 - Read the report
-
-Read `.graphify/graph_report.md` and summarize: hub nodes, communities, surprising connections.
-
-## Enforcement Rules
-
-When `.graphify/` exists, you MUST use graphify commands BEFORE using Bash grep/find:
-
-| Question | Command |
-|----------|---------|
-| Where is X? | `nodesify-graphify query "X"` |
-| How does X connect to Y? | `nodesify-graphify path "X" "Y"` |
-| What breaks if X changes? | `nodesify-graphify affected "X"` |
-| How does X reach Y (call direction)? | `nodesify-graphify path "X" "Y" --directed` |
-| What does X do? | `nodesify-graphify explain "X"` |
-| Architecture overview? | Read `.graphify/graph_report.md` |
-
-Only use native file tools AFTER the graph identified the exact files.
-
-## After editing code
-
-Run `nodesify-graphify update .` to keep the graph current.
+1. Run `nodesify-graphify run .` to build the graph
+2. Read `.graphify/graph_report.md` for god nodes and community structure
+3. Use `nodesify-graphify query` and `nodesify-graphify path` instead of grep for architecture questions
+4. Run `nodesify-graphify update .` after modifying code
