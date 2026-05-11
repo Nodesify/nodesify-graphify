@@ -707,7 +707,8 @@ fn extract_single(path: &Path, cfg: &LanguageConfig) -> Result<Extraction, Graph
 // ---------------------------------------------------------------------------
 
 fn extract_markdown(path: &Path) -> Result<Extraction, GraphifyError> {
-    let content = std::fs::read_to_string(path)?;
+    let bytes = std::fs::read(path)?;
+    let content = String::from_utf8_lossy(&bytes).into_owned();
     Ok(extract_markdown_from_string(path, "markdown", &content))
 }
 
@@ -827,7 +828,8 @@ fn extract_markdown_from_string(path: &Path, language: &str, content: &str) -> E
 
 /// Extract structure from plain text files (.txt).
 fn extract_text_file(path: &Path, language: &str) -> Result<Extraction, GraphifyError> {
-    let content = std::fs::read_to_string(path)?;
+    let bytes = std::fs::read(path)?;
+    let content = String::from_utf8_lossy(&bytes).into_owned();
     let fid = file_stem(path);
     let file_id = make_node_id(&[&fid]);
 
@@ -924,7 +926,8 @@ fn extract_text_file(path: &Path, language: &str) -> Result<Extraction, Graphify
 
 /// Extract structure from reStructuredText files (.rst).
 fn extract_rst(path: &Path) -> Result<Extraction, GraphifyError> {
-    let content = std::fs::read_to_string(path)?;
+    let bytes = std::fs::read(path)?;
+    let content = String::from_utf8_lossy(&bytes).into_owned();
     let fid = file_stem(path);
     let file_id = make_node_id(&[&fid]);
 
