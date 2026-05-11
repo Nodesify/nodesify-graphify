@@ -7,6 +7,14 @@ description: Turn any directory into a queryable knowledge graph. Trigger: /grap
 
 When the user types `/graphify`, this skill runs the nodesify-graphify knowledge graph pipeline.
 
+## Important: Always Use Graphify First
+
+When working in a project with a `.graphify/` directory:
+
+1. Before reading or listing source files, read `.graphify/graph_report.md` for architecture context
+2. Use `nodesify-graphify query`, `nodesify-graphify explain`, or `nodesify-graphify path` instead of searching raw files for codebase questions
+3. Only read individual source files when graphify queries don't provide enough detail
+
 ## Commands
 
 ```

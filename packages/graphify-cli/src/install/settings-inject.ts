@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const CONTEXT_MSG_RAW = 'nodesify-graphify: Knowledge graph exists. Read .graphify/graph_report.md for god nodes and community structure before searching raw files.';
+const CONTEXT_MSG_RAW = 'nodesify-graphify: Knowledge graph available. MUST read .graphify/graph_report.md before searching raw files. Use `nodesify-graphify query` instead of grep for architecture questions.';
 const CONTEXT_MSG = CONTEXT_MSG_RAW.replace(/'/g, "\\'");
 
 function readJson(filePath: string): any {
@@ -24,10 +24,10 @@ function writeJson(filePath: string, data: any) {
 // ---- Claude Code (.claude/settings.json) ----
 
 const CLAUDE_HOOK = {
-  matcher: 'Bash',
+  matcher: 'Grep|Glob|Read',
   hooks: [{
     type: 'command',
-    command: `node -e "try{var d=JSON.parse(require('fs').readFileSync(0,'utf8'));var c=(d.tool_input||d).command||'';if(/(grep|rg |ripgrep|find |fd |ack |ag )/.test(c)&&require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}}catch(e){}"`,
+    command: `node -e "if(require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}"`,
   }],
 };
 
@@ -39,7 +39,7 @@ export function injectClaudeHook(projectDir: string): boolean {
 
   const existing = data.hooks.PreToolUse as any[];
   const alreadyExists = existing.some((h: any) =>
-    h.matcher === 'Bash' && JSON.stringify(h.hooks).includes('graphify')
+    h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify')
   );
   if (alreadyExists) return false;
 
@@ -57,7 +57,7 @@ export function removeClaudeHook(projectDir: string): boolean {
 
   const before = data.hooks.PreToolUse.length;
   data.hooks.PreToolUse = (data.hooks.PreToolUse as any[]).filter((h: any) =>
-    !(h.matcher === 'Bash' && JSON.stringify(h.hooks).includes('graphify'))
+    !(h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify'))
   );
 
   if (data.hooks.PreToolUse.length === 0) {
@@ -157,17 +157,22 @@ import { existsSync } from "fs";
 import { join } from "path";
 
 export const GraphifyPlugin = async ({ directory }) => {
-  let reminded = false;
+  const reminded = new Set();
   return {
     "tool.execute.before": async (input, output) => {
-      if (reminded) return;
+      if (reminded.has(input.tool)) return;
+      if (!["view", "grep", "glob", "ls", "bash"].includes(input.tool)) return;
       if (!existsSync(join(directory, ".graphify", "graph.json"))) return;
       if (input.tool === "bash") {
         output.args.command =
-          'echo "[nodesify-graphify] Knowledge graph available. Read .graphify/graph_report.md for architecture context." && ' +
+          'echo "[nodesify-graphify] Knowledge graph available. MUST read .graphify/graph_report.md before searching raw files. Use nodesify-graphify query instead of grep for architecture questions." && ' +
           output.args.command;
-        reminded = true;
+      } else {
+        output.error = new Error(
+          "[nodesify-graphify] Knowledge graph available. MUST read .graphify/graph_report.md before searching raw files. Use nodesify-graphify query instead of grep for architecture questions."
+        );
       }
+      reminded.add(input.tool);
     },
   };
 };
@@ -216,8 +221,9 @@ alwaysApply: true
 
 This project has a nodesify-graphify knowledge graph at .graphify/.
 
-- Before answering architecture or codebase questions, read .graphify/graph_report.md for god nodes and community structure
-- For cross-module questions, use \`nodesify-graphify query\` and \`nodesify-graphify path\` instead of grep
+Rules:
+- MUST read .graphify/graph_report.md before searching files for architecture or codebase questions
+- MUST use \`nodesify-graphify query "<question>"\`, \`nodesify-graphify path "<A>" "<B>"\`, or \`nodesify-graphify explain "<concept>"\` for cross-module questions — do NOT grep/read files directly for these
 - After modifying code files, run \`nodesify-graphify update .\` to keep the graph current
 `;
 
@@ -246,7 +252,12 @@ const KIRO_STEERING = `---
 inclusion: always
 ---
 
-nodesify-graphify: A knowledge graph of this project lives in \`.graphify/\`. If \`.graphify/graph_report.md\` exists, read it before answering architecture questions, tracing dependencies, or searching files. Navigate by graph structure instead of grepping raw files.
+nodesify-graphify: A knowledge graph of this project lives in \`.graphify/\`.
+
+Rules:
+- MUST read \`.graphify/graph_report.md\` before searching files for architecture or codebase questions
+- MUST use \`nodesify-graphify query\`, \`nodesify-graphify path\`, or \`nodesify-graphify explain\` for cross-module questions — do NOT grep/read files directly
+- After modifying code files, run \`nodesify-graphify update .\` to keep the graph current
 `;
 
 export function injectKiroSteering(projectDir: string): boolean {
