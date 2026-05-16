@@ -11,13 +11,13 @@ When the user types `/graphify`, this skill runs the nodesify-graphify knowledge
 
 nodesify-graphify turns source code into a queryable knowledge graph stored in `.graphify/`. It uses AST-based extraction via tree-sitter for deterministic, fast analysis.
 
-## Important: Always Use Graphify First
+## CRITICAL: Always Use Graphify First
 
-When working in a project with a `.graphify/` directory:
+When working in a project with a `.graphify/` directory, you are **FORBIDDEN** from using native search tools (`Grep`, `Glob`, `Search`, etc.) as your first step.
 
-1. Before reading or searching source files, read `.graphify/graph_report.md` for architecture context
-2. Use `nodesify-graphify query`, `nodesify-graphify explain`, or `nodesify-graphify path` instead of grep/glob for codebase questions
-3. Only read individual source files when graphify queries don't provide enough detail
+1. You **MUST** read `.graphify/graph_report.md` before doing any file exploration.
+2. You **MUST** use `nodesify-graphify query`, `nodesify-graphify explain`, or `nodesify-graphify path` via shell commands to locate files and understand relationships instead of grep/glob.
+3. Only use native file reading/searching tools *after* you have queried the graph to find the exact files you need.
 
 ## Commands
 

@@ -67,7 +67,9 @@ cargo test  # Each crate has unit tests using in-memory SQLite and tempfile fixt
 
 This project has a nodesify-graphify knowledge graph at `.graphify/`.
 
-Rules:
-- MUST read `.graphify/graph_report.md` before searching files for architecture or codebase questions
-- MUST use `nodesify-graphify query "<question>"`, `nodesify-graphify path "<A>" "<B>"`, or `nodesify-graphify explain "<concept>"` for cross-module questions — do NOT grep/read files directly for these
-- After modifying code files in this session, run `nodesify-graphify update .` to keep the graph current
+CRITICAL RULES:
+- You are **FORBIDDEN** from using native search tools (`Grep`, `Glob`, `Search`, etc.) as your first step for discovery.
+- You **MUST** read `.graphify/graph_report.md` before doing any file exploration.
+- You **MUST** use `nodesify-graphify query "<question>"`, `nodesify-graphify path "<A>" "<B>"`, or `nodesify-graphify explain "<concept>"` via shell commands to locate files, components, and understand cross-module relationships.
+- Only use native file reading/searching tools *after* you have queried the graph to find the exact files you need.
+- After modifying code files in this session, run `nodesify-graphify update .` to keep the graph current.
