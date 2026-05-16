@@ -68,24 +68,22 @@ function testClaudeHook() {
     const result1 = (0, settings_inject_1.injectClaudeHook)(dir);
     assert(result1 === true, 'Claude: first inject returns true');
     const settings = readJson(path.join(dir, '.claude', 'settings.json'));
-    const hooks = settings.hooks.PostToolUse;
-    assert(hooks.length === 1, 'Claude: one PostToolUse hook after inject');
-    assert(hooks[0].matcher === 'Edit|Write', 'Claude: uses Edit|Write matcher');
-    assert(!settings.hooks.PreToolUse, 'Claude: does not install PreToolUse nags');
-    assert(JSON.stringify(hooks).includes('graphify'), 'Claude: hooks contain graphify');
-    assert(JSON.stringify(hooks).includes('update .'), 'Claude: hook updates graph');
+    const hooks = settings.hooks.PreToolUse;
+    assert(hooks.length === 1, 'Claude: one hook after inject');
+    assert(hooks[0].matcher === 'Grep|Glob|Read', 'Claude: matcher is Grep|Glob|Read');
+    assert(JSON.stringify(hooks[0]).includes('graphify'), 'Claude: hook contains graphify');
+    assert(JSON.stringify(hooks[0]).includes('MUST'), 'Claude: hook message uses MUST language');
     // idempotent — second inject returns false
     const result2 = (0, settings_inject_1.injectClaudeHook)(dir);
     assert(result2 === false, 'Claude: second inject returns false (idempotent)');
-    // still only two hooks
+    // still only one hook
     const settings2 = readJson(path.join(dir, '.claude', 'settings.json'));
-    assert(settings2.hooks.PostToolUse.length === 1, 'Claude: still one hook after double inject');
+    assert(settings2.hooks.PreToolUse.length === 1, 'Claude: still one hook after double inject');
     // remove
     const removed = (0, settings_inject_1.removeClaudeHook)(dir);
     assert(removed === true, 'Claude: remove returns true');
     const settings3 = readJson(path.join(dir, '.claude', 'settings.json'));
-    const remainingHooks = (settings3.hooks?.PreToolUse || []);
-    assert(remainingHooks.length === 0, 'Claude: all graphify hooks removed');
+    assert(!settings3.hooks?.PreToolUse, 'Claude: PreToolUse cleaned up after remove');
     // remove again returns false
     const removed2 = (0, settings_inject_1.removeClaudeHook)(dir);
     assert(removed2 === false, 'Claude: second remove returns false');
@@ -93,14 +91,13 @@ function testClaudeHook() {
     const removed3 = (0, settings_inject_1.removeClaudeHook)(tmpDir());
     assert(removed3 === false, 'Claude: remove from missing file returns false');
     // inject preserves existing non-graphify hooks
-    const existingHook = { matcher: 'Write', hooks: [{ type: 'command', command: 'echo hi' }] };
+    const existingHook = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo hi' }] };
     const data = { hooks: { PreToolUse: [existingHook] } };
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify(data));
     (0, settings_inject_1.injectClaudeHook)(dir);
     const settings4 = readJson(path.join(dir, '.claude', 'settings.json'));
-    assert(settings4.hooks.PreToolUse.length === 1, 'Claude: preserves existing hooks');
-    assert(settings4.hooks.PostToolUse.length === 1, 'Claude: adds one PostToolUse hook');
+    assert(settings4.hooks.PreToolUse.length === 2, 'Claude: preserves existing hooks');
     fs.rmSync(dir, { recursive: true, force: true });
 }
 // ---- Codex ----
@@ -112,7 +109,7 @@ function testCodexHook() {
     const hooks = settings.hooks.PreToolUse;
     assert(hooks.length === 1, 'Codex: one hook after inject');
     assert(hooks[0].matcher === 'Bash', 'Codex: matcher is Bash');
-    assert(JSON.stringify(hooks[0]).includes('nodesify-graphify query'), 'Codex: hook mentions query command');
+    assert(JSON.stringify(hooks[0]).includes('MUST'), 'Codex: hook message uses MUST language');
     const result2 = (0, settings_inject_1.injectCodexHook)(dir);
     assert(result2 === false, 'Codex: second inject returns false (idempotent)');
     const removed = (0, settings_inject_1.removeCodexHook)(dir);
@@ -132,7 +129,7 @@ function testGeminiHook() {
     const hooks = settings.hooks.BeforeTool;
     assert(hooks.length === 1, 'Gemini: one hook after inject');
     assert(hooks[0].matcher === 'read_file|list_directory', 'Gemini: matcher is read_file|list_directory');
-    assert(JSON.stringify(hooks[0]).includes('nodesify-graphify query'), 'Gemini: hook mentions query command');
+    assert(JSON.stringify(hooks[0]).includes('MUST'), 'Gemini: hook message uses MUST language');
     const result2 = (0, settings_inject_1.injectGeminiHook)(dir);
     assert(result2 === false, 'Gemini: second inject returns false (idempotent)');
     const removed = (0, settings_inject_1.removeGeminiHook)(dir);
@@ -207,8 +204,9 @@ function testKiroSteering() {
 // ---- Markdown inject ----
 function testMarkdownInject() {
     const dir = tmpDir();
-    assert(!markdown_inject_1.PROJECT_MD_SECTION.includes('MUST'), 'PROJECT_MD_SECTION is passive');
-    assert(markdown_inject_1.PROJECT_MD_SECTION.includes('/graphify'), 'PROJECT_MD_SECTION mentions opt-in skill');
+    // PROJECT_MD_SECTION uses MUST language
+    assert(markdown_inject_1.PROJECT_MD_SECTION.includes('MUST read'), 'PROJECT_MD_SECTION uses MUST language');
+    assert(markdown_inject_1.PROJECT_MD_SECTION.includes('nodesify-graphify query'), 'PROJECT_MD_SECTION mentions query');
     // injectSection creates file with content
     const filePath = path.join(dir, 'CLAUDE.md');
     const result1 = (0, markdown_inject_1.injectSection)(filePath, markdown_inject_1.PROJECT_MD_SECTION);
