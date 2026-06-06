@@ -1,9 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const CONTEXT_MSG_RAW = 'nodesify-graphify: Knowledge graph available. MUST read .graphify/graph_report.md before searching raw files. Use `nodesify-graphify query` instead of grep for architecture questions.';
-const CONTEXT_MSG = CONTEXT_MSG_RAW.replace(/'/g, "\\'");
-
 function readJson(filePath: string): any {
   if (!fs.existsSync(filePath)) return {};
   try {
@@ -27,7 +24,15 @@ const CLAUDE_HOOK = {
   matcher: 'Grep|Glob|Read',
   hooks: [{
     type: 'command',
-    command: `node -e "if(require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}"`,
+    command: `node -e "const fs=require('fs');const p='.graphify/graph.json';if(!fs.existsSync(p)){process.exit(0)}const age=Math.round((Date.now()-fs.statSync(p).mtimeMs)/60000);const msg=age>30?'nodesify-graphify: STALE GRAPH (built '+age+' min ago). Run nodesify-graphify update . BEFORE searching. Then use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.':'nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.';process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:msg}}))"`,
+  }],
+};
+
+const BASH_GREP_HOOK = {
+  matcher: 'Bash',
+  hooks: [{
+    type: 'command',
+    command: `CMD=$(node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write((d.tool_input||d).command||'')" 2>/dev/null || true); case "$CMD" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *) [ -f .graphify/graph.json ] && echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"nodesify-graphify: Use nodesify-graphify query instead of grep for architecture questions. Read .graphify/graph_report.md first."}}' || true ;; esac`,
   }],
 };
 
@@ -39,10 +44,11 @@ export function injectClaudeHook(projectDir: string): boolean {
 
   const existing = data.hooks.PreToolUse as any[];
   const alreadyExists = existing.some((h: any) =>
-    h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify')
+    JSON.stringify(h.hooks).includes('graphify')
   );
   if (alreadyExists) return false;
 
+  existing.push(BASH_GREP_HOOK);
   existing.push(CLAUDE_HOOK);
   writeJson(settingsPath, data);
   return true;
@@ -57,7 +63,7 @@ export function removeClaudeHook(projectDir: string): boolean {
 
   const before = data.hooks.PreToolUse.length;
   data.hooks.PreToolUse = (data.hooks.PreToolUse as any[]).filter((h: any) =>
-    !(h.matcher === 'Grep|Glob|Read' && JSON.stringify(h.hooks).includes('graphify'))
+    !JSON.stringify(h.hooks).includes('graphify')
   );
 
   if (data.hooks.PreToolUse.length === 0) {
@@ -88,7 +94,7 @@ export function injectCodexHook(projectDir: string): boolean {
     matcher: 'Bash',
     hooks: [{
       type: 'command',
-      command: `node -e "if(require('fs').existsSync('.graphify/graph.json')){process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'${CONTEXT_MSG}'}}))}"`,
+      command: `node -e "const fs=require('fs');const p='.graphify/graph.json';if(!fs.existsSync(p)){process.exit(0)}const msg='nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.';process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:msg}}))"`,
     }],
   });
   writeJson(hooksPath, data);
@@ -128,7 +134,7 @@ export function injectGeminiHook(projectDir: string): boolean {
     matcher: 'read_file|list_directory',
     hooks: [{
       type: 'command',
-      command: `node -e "var r={decision:'allow'};if(require('fs').existsSync('.graphify/graph.json')){r.additionalContext='${CONTEXT_MSG}'}process.stdout.write(JSON.stringify(r))"`,
+      command: `node -e "const fs=require('fs');const p='.graphify/graph.json';var r={decision:'allow'};if(fs.existsSync(p)){r.additionalContext='nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.'}process.stdout.write(JSON.stringify(r))"`,
     }],
   });
   writeJson(settingsPath, data);
