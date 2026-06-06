@@ -13,6 +13,7 @@ import { clusterCommand } from './commands/cluster';
 import { mergeCommand } from './commands/merge';
 import { diffCommand } from './commands/diff';
 import { historyCommand } from './commands/history';
+import { statusCommand } from './commands/status';
 import { registerInstallCommand } from './commands/install';
 import { registerHookCommand } from './commands/hook';
 
@@ -108,6 +109,12 @@ program
   .option('--limit <n>', 'Number of entries to show', '20')
   .option('--graph <path>', 'Path to project root', '.')
   .action(historyCommand);
+
+program
+  .command('status')
+  .description('Check graph health and staleness')
+  .option('--graph <path>', 'Path to project root', '.')
+  .action(statusCommand);
 
 registerInstallCommand(program);
 registerHookCommand(program);
