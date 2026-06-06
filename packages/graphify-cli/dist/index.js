@@ -15,6 +15,7 @@ const cluster_1 = require("./commands/cluster");
 const merge_1 = require("./commands/merge");
 const diff_1 = require("./commands/diff");
 const history_1 = require("./commands/history");
+const status_1 = require("./commands/status");
 const install_1 = require("./commands/install");
 const hook_1 = require("./commands/hook");
 const program = new commander_1.Command();
@@ -97,6 +98,11 @@ program
     .option('--limit <n>', 'Number of entries to show', '20')
     .option('--graph <path>', 'Path to project root', '.')
     .action(history_1.historyCommand);
+program
+    .command('status')
+    .description('Check graph health and staleness')
+    .option('--graph <path>', 'Path to project root', '.')
+    .action(status_1.statusCommand);
 (0, install_1.registerInstallCommand)(program);
 (0, hook_1.registerHookCommand)(program);
 program.parse();
