@@ -61,7 +61,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install dependencies
-        run: cd packages/graphify-cli && npm install
+        run: cd packages/graphify-cli && npm install --install-strategy=nested
       - name: Build native binary
         env:
           NAPI_RS_CLI_VERSION: '2.18.4'
@@ -101,7 +101,7 @@ jobs:
             cp "$dir"*.node "packages/graphify-cli/npm/$platform/graphify.$platform.node"
           done
       - name: Install dependencies
-        run: cd packages/graphify-cli && npm install
+        run: cd packages/graphify-cli && npm install --install-strategy=nested
       - name: Build CLI
         run: cd packages/graphify-cli && npm run build
       - name: Upgrade npm for OIDC
