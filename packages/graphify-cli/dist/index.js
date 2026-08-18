@@ -12,6 +12,7 @@ const path_1 = require("./commands/path");
 const affected_1 = require("./commands/affected");
 const mcp_1 = require("./commands/mcp");
 const tree_1 = require("./commands/tree");
+const prs_1 = require("./commands/prs");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -123,6 +124,13 @@ program
     .option('--out <file>', 'Output HTML file', 'tree.html')
     .option('--max-children <n>', 'Max symbols shown per directory', '40')
     .action(tree_1.treeCommand);
+program
+    .command('prs')
+    .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+    .argument('[count]', 'Number of PRs to analyze', '20')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+    .action(prs_1.prsCommand);
 program
     .command('status')
     .description('Check graph health and staleness')

@@ -10,6 +10,7 @@ import { pathCommand } from './commands/path';
 import { affectedCommand } from './commands/affected';
 import { mcpCommand } from './commands/mcp';
 import { treeCommand } from './commands/tree';
+import { prsCommand } from './commands/prs';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -137,6 +138,14 @@ program
   .option('--out <file>', 'Output HTML file', 'tree.html')
   .option('--max-children <n>', 'Max symbols shown per directory', '40')
   .action(treeCommand);
+
+program
+  .command('prs')
+  .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+  .argument('[count]', 'Number of PRs to analyze', '20')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+  .action(prsCommand);
 
 program
   .command('status')
