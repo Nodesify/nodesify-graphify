@@ -198,7 +198,8 @@ fn run_pipeline_inner(
     if !detected.removed.is_empty() {
         let tx = db.unchecked_transaction()?;
         for entry in &detected.removed {
-            let path_str = graphify_paths::normalize(&entry.path);
+            // Match how build stores them: absolute path joined from root
+            let path_str = graphify_paths::normalize(&root.join(&entry.path));
             // Delete edges owned by this file
             tx.execute(
                 "DELETE FROM edges WHERE source_file = ?1",
@@ -246,6 +247,7 @@ fn run_pipeline_inner(
             },
             cluster_result: graphify_cluster::ClusterResult {
                 communities: Default::default(),
+                labels: Default::default(),
                 iterations: 0,
             },
             analysis,

@@ -11,4 +11,5 @@ export declare const clusterOnly: any;
 export declare const mergeGraphs: any;
 export declare const diffGraphs: any;
 export declare const graphHistory: any;
+export declare const affectedNode: any;
 //# sourceMappingURL=native.d.ts.map

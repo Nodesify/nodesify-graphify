@@ -7,6 +7,7 @@ import { explainCommand } from './commands/explain';
 import { exportCommand } from './commands/export';
 import { queryCommand } from './commands/query';
 import { pathCommand } from './commands/path';
+import { affectedCommand } from './commands/affected';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -67,6 +68,15 @@ program
   .argument('<target>', 'Target node label')
   .option('--graph <path>', 'Path to project root', '.')
   .action(pathCommand);
+
+program
+  .command('affected')
+  .description('Show the blast radius of a node — everything impacted by changing it')
+  .argument('<node>', 'Node ID, label, or source file path')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--depth <n>', 'Maximum hops to traverse', '2')
+  .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+  .action(affectedCommand);
 
 program
   .command('stats')

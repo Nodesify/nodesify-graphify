@@ -38,18 +38,22 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
         )?;
 
         for node in &extraction.nodes {
-            let existing: bool = tx
+            // An existing non-stub node with this id is a cross-file merge
+            // (e.g. shared concepts); skip it. A stub (created speculatively
+            // by an earlier file's edges) must be replaced by the real
+            // definition via the upsert below.
+            let existing_ft: Option<String> = tx
                 .query_row(
-                    "SELECT COUNT(*) FROM nodes WHERE id = ?1",
+                    "SELECT file_type FROM nodes WHERE id = ?1",
                     rusqlite::params![node.id],
-                    |row| row.get::<_, i64>(0),
+                    |row| row.get(0),
                 )
-                .unwrap_or(0)
-                > 0;
-
-            if existing {
-                duplicates_merged += 1;
-                continue;
+                .ok();
+            if let Some(ft) = existing_ft {
+                if ft != "stub" {
+                    duplicates_merged += 1;
+                    continue;
+                }
             }
 
             let file_type = match node.node_type.as_str() {
@@ -64,8 +68,18 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                 }
             };
 
+            // Insert the node; a real definition always replaces a stub with
+            // the same id (stubs are created speculatively by edges and may
+            // land before the definition's own extraction is processed).
             tx.execute(
-                "INSERT OR IGNORE INTO nodes (id, label, file_type, source_file, source_line, docstring) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO nodes (id, label, file_type, source_file, source_line, docstring) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                   label = excluded.label,
+                   file_type = excluded.file_type,
+                   source_file = excluded.source_file,
+                   source_line = excluded.source_line,
+                   docstring = excluded.docstring
+                 WHERE nodes.file_type = 'stub'",
                 rusqlite::params![
                     node.id,
                     graphify_core::sanitize_label(&node.label),
@@ -144,16 +158,20 @@ mod tests {
     use graphify_extract::{ExtractedEdge, ExtractedNode, Extraction};
     use std::path::PathBuf;
 
-    fn make_extraction(nodes: Vec<(&str, &str)>, edges: Vec<(&str, &str, &str)>) -> Extraction {
+    fn make_extraction_at(
+        path: &str,
+        nodes: Vec<(&str, &str)>,
+        edges: Vec<(&str, &str, &str)>,
+    ) -> Extraction {
         Extraction {
-            file_path: PathBuf::from("test.py"),
+            file_path: PathBuf::from(path),
             language: "Python".into(),
             nodes: nodes
                 .into_iter()
                 .map(|(id, label)| ExtractedNode {
                     id: id.into(),
                     label: label.into(),
-                    source_file: PathBuf::from("test.py"),
+                    source_file: PathBuf::from(path),
                     source_line: Some(1),
                     docstring: None,
                     node_type: "function".into(),
@@ -167,11 +185,15 @@ mod tests {
                     relation: rel.into(),
                     confidence: "EXTRACTED".into(),
                     confidence_score: Some(1.0),
-                    source_file: PathBuf::from("test.py"),
+                    source_file: PathBuf::from(path),
                     source_line: Some(1),
                 })
                 .collect(),
         }
+    }
+
+    fn make_extraction(nodes: Vec<(&str, &str)>, edges: Vec<(&str, &str, &str)>) -> Extraction {
+        make_extraction_at("test.py", nodes, edges)
     }
 
     #[test]
@@ -184,6 +206,43 @@ mod tests {
         let result = build(&[ext], &db).unwrap();
         assert_eq!(result.nodes_added, 2);
         assert_eq!(result.edges_added, 1);
+    }
+
+    #[test]
+    fn real_definition_replaces_stub() {
+        // An edge in lib.rs can create a stub for a symbol defined in
+        // pipeline.rs before pipeline.rs's extraction is processed — the real
+        // definition must win, regardless of file order.
+        let db = open_db_in_memory().unwrap();
+        let caller = make_extraction_at(
+            "lib.rs",
+            vec![("srclib::caller", "caller()")],
+            vec![("srclib::caller", "srcpipeline::helper", "calls")],
+        );
+        build(&[caller], &db).unwrap();
+
+        let file_type: String = db
+            .query_row(
+                "SELECT file_type FROM nodes WHERE id = 'srcpipeline::helper'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(file_type, "stub");
+
+        let definition =
+            make_extraction_at("pipeline.rs", vec![("srcpipeline::helper", "helper()")], vec![]);
+        build(&[definition], &db).unwrap();
+
+        let (file_type, label): (String, String) = db
+            .query_row(
+                "SELECT file_type, label FROM nodes WHERE id = 'srcpipeline::helper'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(file_type, "code");
+        assert_eq!(label, "helper()");
     }
 
     #[test]

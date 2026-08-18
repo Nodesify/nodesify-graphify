@@ -86,5 +86,5 @@ fn export_json_is_valid() {
     let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     assert!(parsed["nodes"].is_array());
     assert!(parsed["edges"].is_array());
-    assert!(parsed["nodes"].as_array().unwrap().len() > 0);
+    assert!(!parsed["nodes"].as_array().unwrap().is_empty());
 }

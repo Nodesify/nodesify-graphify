@@ -76,6 +76,23 @@ pub struct HistoryEntryJs {
     pub queried_at: String,
 }
 
+#[napi(object)]
+pub struct AffectedHitJs {
+    pub id: String,
+    pub label: String,
+    pub depth: i32,
+    pub relation: String,
+    pub via_file: String,
+}
+
+#[napi(object)]
+pub struct AffectedResultJs {
+    pub seed: String,
+    pub seed_label: String,
+    pub total: i32,
+    pub hits: Vec<AffectedHitJs>,
+}
+
 // ---- napi-exposed functions ----
 
 #[napi]
@@ -238,6 +255,37 @@ pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<Explai
             })
             .collect(),
     }))
+}
+
+#[napi]
+pub fn affected_node(
+    root: String,
+    node: String,
+    depth: Option<u32>,
+    relation: Option<String>,
+) -> napi::Result<AffectedResultJs> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result =
+        graphify_analyze::affected::affected(&db, &node, depth.unwrap_or(2), relation.as_deref())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(AffectedResultJs {
+        seed: result.seed,
+        seed_label: result.seed_label,
+        total: result.total as i32,
+        hits: result
+            .hits
+            .into_iter()
+            .map(|h| AffectedHitJs {
+                id: h.id,
+                label: h.label,
+                depth: h.depth as i32,
+                relation: h.relation,
+                via_file: h.via_file,
+            })
+            .collect(),
+    })
 }
 
 #[napi]
