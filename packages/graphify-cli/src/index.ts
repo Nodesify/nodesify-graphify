@@ -8,6 +8,7 @@ import { exportCommand } from './commands/export';
 import { queryCommand } from './commands/query';
 import { pathCommand } from './commands/path';
 import { affectedCommand } from './commands/affected';
+import { mcpCommand } from './commands/mcp';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -121,6 +122,12 @@ program
   .option('--limit <n>', 'Number of entries to show', '20')
   .option('--graph <path>', 'Path to project root', '.')
   .action(historyCommand);
+
+program
+  .command('mcp')
+  .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+  .option('--graph <path>', 'Path to project root', '.')
+  .action(mcpCommand);
 
 program
   .command('status')

@@ -123,7 +123,7 @@ for (const cmd of requiredCommands) {
     assert(commandNames.includes(cmd), `Command "${cmd}" should be registered`);
 }
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp'];
 for (const cmd of newCommands) {
     assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }

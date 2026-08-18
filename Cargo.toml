@@ -9,6 +9,8 @@ members = [
     "crates/graphify-cluster",
     "crates/graphify-analyze",
     "crates/graphify-report",
+    "crates/graphify-query",
+    "crates/graphify-mcp",
     "crates/graphify-napi",
     "crates/graphify-semantic",
     "crates/graphify-ingest",
@@ -24,6 +26,8 @@ graphify-build = { path = "crates/graphify-build" }
 graphify-cluster = { path = "crates/graphify-cluster" }
 graphify-analyze = { path = "crates/graphify-analyze" }
 graphify-report = { path = "crates/graphify-report" }
+graphify-query = { path = "crates/graphify-query" }
+graphify-mcp = { path = "crates/graphify-mcp" }
 graphify-semantic = { path = "crates/graphify-semantic" }
 graphify-ingest = { path = "crates/graphify-ingest" }
 graphify-pdf = { path = "crates/graphify-pdf" }
