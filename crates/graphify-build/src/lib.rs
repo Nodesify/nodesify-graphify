@@ -1,5 +1,8 @@
 // graphify-build: merge extractions into SQLite graph
 
+pub mod dedup;
+pub mod minhash;
+
 use graphify_core::Result;
 use graphify_extract::Extraction;
 use graphify_paths::normalize;
@@ -230,8 +233,11 @@ mod tests {
             .unwrap();
         assert_eq!(file_type, "stub");
 
-        let definition =
-            make_extraction_at("pipeline.rs", vec![("srcpipeline::helper", "helper()")], vec![]);
+        let definition = make_extraction_at(
+            "pipeline.rs",
+            vec![("srcpipeline::helper", "helper()")],
+            vec![],
+        );
         build(&[definition], &db).unwrap();
 
         let (file_type, label): (String, String) = db

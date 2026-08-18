@@ -36,12 +36,14 @@ function createProgram(): Command {
     .command('run')
     .description('Run the full pipeline on a directory')
     .argument('<path>', 'Directory to analyze')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(() => {});
 
   program
     .command('update')
     .description('Run incremental AST-only rebuild')
     .argument('<path>', 'Directory to update')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(() => {});
 
   program

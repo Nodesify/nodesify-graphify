@@ -85,6 +85,20 @@ pub fn generate_report(
         report.push('\n');
     }
 
+    let dedup_merged: i64 = db
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM _meta WHERE key = 'last_dedup_merged'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if dedup_merged > 0 {
+        report.push_str(&format!(
+            "## Merged Duplicates\n\n{} near-duplicate node(s) merged into canonical entities.\n\n",
+            dedup_merged
+        ));
+    }
+
     report.push_str("## Suggested Questions\n\n");
     for q in &analysis.suggested_questions {
         report.push_str(&format!("- {}\n", q));
