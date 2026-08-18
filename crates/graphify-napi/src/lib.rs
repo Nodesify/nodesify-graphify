@@ -1,11 +1,12 @@
 pub mod export_graphml;
 pub mod export_html;
+pub mod export_tree;
 pub mod merge;
 pub mod pipeline;
 pub mod query;
 
 use napi_derive::napi;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ---- napi-exposed types ----
 
@@ -76,16 +77,33 @@ pub struct HistoryEntryJs {
     pub queried_at: String,
 }
 
+#[napi(object)]
+pub struct AffectedHitJs {
+    pub id: String,
+    pub label: String,
+    pub depth: i32,
+    pub relation: String,
+    pub via_file: String,
+}
+
+#[napi(object)]
+pub struct AffectedResultJs {
+    pub seed: String,
+    pub seed_label: String,
+    pub total: i32,
+    pub hits: Vec<AffectedHitJs>,
+}
+
 // ---- napi-exposed functions ----
 
 #[napi]
-pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
+pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
-    let result =
-        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -98,13 +116,13 @@ pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
 /// Incremental rebuild — intentionally reuses run_pipeline because the pipeline
 /// internally detects changed files via SHA-256 manifest and skips unchanged ones.
 #[napi]
-pub fn update_pipeline(root: String) -> napi::Result<PipelineResultJs> {
+pub fn update_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
-    let result =
-        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -238,6 +256,68 @@ pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<Explai
             })
             .collect(),
     }))
+}
+
+#[napi]
+pub fn affected_node(
+    root: String,
+    node: String,
+    depth: Option<u32>,
+    relation: Option<String>,
+) -> napi::Result<AffectedResultJs> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result =
+        graphify_analyze::affected::affected(&db, &node, depth.unwrap_or(2), relation.as_deref())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(AffectedResultJs {
+        seed: result.seed,
+        seed_label: result.seed_label,
+        total: result.total as i32,
+        hits: result
+            .hits
+            .into_iter()
+            .map(|h| AffectedHitJs {
+                id: h.id,
+                label: h.label,
+                depth: h.depth as i32,
+                relation: h.relation,
+                via_file: h.via_file,
+            })
+            .collect(),
+    })
+}
+
+#[napi]
+pub fn export_tree(root: String, out: String, max_children: Option<i32>) -> napi::Result<i32> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let out_path = Path::new(&out);
+    let out_path = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        root_pb.join(out_path)
+    };
+    let count =
+        export_tree::export_tree(&db, &out_path, max_children.unwrap_or(40).max(1) as usize)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+#[napi]
+pub fn run_mcp_server(root: String) -> napi::Result<()> {
+    let root_pb = PathBuf::from(&root);
+    if !root_pb.exists() {
+        return Err(napi::Error::from_reason(format!(
+            "path does not exist: {}",
+            root_pb.display()
+        )));
+    }
+    let db_path =
+        graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    graphify_mcp::serve(&db_path).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 #[napi]

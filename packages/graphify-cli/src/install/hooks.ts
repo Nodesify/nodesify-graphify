@@ -48,6 +48,56 @@ try {
 // nodesify-graphify-checkout-hook-end
 `;
 
+interface HookDef {
+  hookName: string;
+  script: string;
+  startMarker: string;
+  endMarker: string;
+  // Releases before 0.3.0 wrote shell-format hooks with '#' markers. The
+  // current JS-format installer must recognize and replace them, otherwise
+  // it appends JS to a #!/bin/sh file and every hook invocation errors.
+  legacyStartMarker: string;
+  legacyEndMarker: string;
+}
+
+const HOOK_DEFS: HookDef[] = [
+  {
+    hookName: 'post-commit',
+    script: POST_COMMIT_SCRIPT,
+    startMarker: '// nodesify-graphify-hook-start',
+    endMarker: '// nodesify-graphify-hook-end',
+    legacyStartMarker: '# nodesify-graphify-hook-start',
+    legacyEndMarker: '# nodesify-graphify-hook-end',
+  },
+  {
+    hookName: 'post-checkout',
+    script: POST_CHECKOUT_SCRIPT,
+    startMarker: '// nodesify-graphify-checkout-hook-start',
+    endMarker: '// nodesify-graphify-checkout-hook-end',
+    legacyStartMarker: '# nodesify-graphify-checkout-hook-start',
+    legacyEndMarker: '# nodesify-graphify-checkout-hook-end',
+  },
+];
+
+const SHEBANGS = ['#!/bin/sh', '#!/bin/bash', '#!/usr/bin/env node'];
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripMarkerSection(content: string, startMarker: string, endMarker: string): string {
+  const regex = new RegExp(
+    '\\n*' + escapeRegExp(startMarker) + '[\\s\\S]*?' + escapeRegExp(endMarker) + '\\n*',
+    'g'
+  );
+  return content.replace(regex, '\n');
+}
+
+function isOwnShebangOnly(content: string): boolean {
+  const trimmed = content.trim();
+  return trimmed === '' || SHEBANGS.includes(trimmed);
+}
+
 function getGitRoot(projectDir: string): string | null {
   try {
     const result = execSync('git rev-parse --show-toplevel', {
@@ -75,55 +125,68 @@ function getHooksDir(gitRoot: string): string {
   return path.join(gitRoot, '.git', 'hooks');
 }
 
-function installHook(hooksDir: string, hookName: string, script: string, startMarker: string, endMarker: string): string {
+function installHook(hooksDir: string, def: HookDef): string {
   if (!fs.existsSync(hooksDir)) {
     fs.mkdirSync(hooksDir, { recursive: true });
   }
 
-  const hookPath = path.join(hooksDir, hookName);
+  const hookPath = path.join(hooksDir, def.hookName);
 
   if (fs.existsSync(hookPath)) {
-    const existing = fs.readFileSync(hookPath, 'utf-8');
-    if (existing.includes(startMarker)) {
-      return `${hookName}: already installed`;
+    let content = fs.readFileSync(hookPath, 'utf-8');
+    const hadLegacy = content.includes(def.legacyStartMarker);
+    if (hadLegacy) {
+      content = stripMarkerSection(content, def.legacyStartMarker, def.legacyEndMarker);
     }
-    const appended = existing.trimEnd() + '\n\n' + script;
-    fs.writeFileSync(hookPath, appended, 'utf-8');
-    return `${hookName}: appended to existing hook`;
+
+    if (isOwnShebangOnly(content)) {
+      // File contained only our legacy section - rewrite fresh in current format
+      fs.writeFileSync(hookPath, '#!/usr/bin/env node\n\n' + def.script, 'utf-8');
+      return hadLegacy
+        ? `${def.hookName}: migrated legacy hook to current format`
+        : `${def.hookName}: installed`;
+    }
+
+    if (content.includes(def.startMarker)) {
+      if (hadLegacy) {
+        fs.writeFileSync(hookPath, content, 'utf-8');
+        return `${def.hookName}: already installed (stale legacy section removed)`;
+      }
+      return `${def.hookName}: already installed`;
+    }
+
+    fs.writeFileSync(hookPath, content.trimEnd() + '\n\n' + def.script, 'utf-8');
+    return hadLegacy
+      ? `${def.hookName}: appended to existing hook (replaced legacy section)`
+      : `${def.hookName}: appended to existing hook`;
   }
 
-  fs.writeFileSync(hookPath, '#!/usr/bin/env node\n\n' + script, 'utf-8');
+  fs.writeFileSync(hookPath, '#!/usr/bin/env node\n\n' + def.script, 'utf-8');
   try { fs.chmodSync(hookPath, 0o755); } catch { /* Windows */ }
-  return `${hookName}: installed`;
+  return `${def.hookName}: installed`;
 }
 
-function uninstallHook(hooksDir: string, hookName: string, startMarker: string, endMarker: string): string {
-  const hookPath = path.join(hooksDir, hookName);
+function uninstallHook(hooksDir: string, def: HookDef): string {
+  const hookPath = path.join(hooksDir, def.hookName);
   if (!fs.existsSync(hookPath)) {
-    return `${hookName}: not found`;
+    return `${def.hookName}: not found`;
   }
 
   let content = fs.readFileSync(hookPath, 'utf-8');
-  if (!content.includes(startMarker)) {
-    return `${hookName}: not installed`;
+  if (!content.includes(def.startMarker) && !content.includes(def.legacyStartMarker)) {
+    return `${def.hookName}: not installed`;
   }
 
-  const regex = new RegExp(
-    '\\n*' + startMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
-    '[\\s\\S]*?' +
-    endMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n*',
-    'g'
-  );
-  content = content.replace(regex, '\n');
+  content = stripMarkerSection(content, def.startMarker, def.endMarker);
+  content = stripMarkerSection(content, def.legacyStartMarker, def.legacyEndMarker);
 
-  const trimmed = content.trim();
-  if (trimmed === '' || trimmed === '#!/bin/sh' || trimmed === '#!/usr/bin/env node') {
+  if (isOwnShebangOnly(content)) {
     fs.unlinkSync(hookPath);
-    return `${hookName}: removed (deleted empty hook)`;
+    return `${def.hookName}: removed (deleted empty hook)`;
   }
 
   fs.writeFileSync(hookPath, content, 'utf-8');
-  return `${hookName}: removed`;
+  return `${def.hookName}: removed`;
 }
 
 export function installGitHooks(projectDir: string): string[] {
@@ -131,10 +194,7 @@ export function installGitHooks(projectDir: string): string[] {
   if (!gitRoot) return ['Not a git repository'];
 
   const hooksDir = getHooksDir(gitRoot);
-  return [
-    installHook(hooksDir, 'post-commit', POST_COMMIT_SCRIPT, '// nodesify-graphify-hook-start', '// nodesify-graphify-hook-end'),
-    installHook(hooksDir, 'post-checkout', POST_CHECKOUT_SCRIPT, '// nodesify-graphify-checkout-hook-start', '// nodesify-graphify-checkout-hook-end'),
-  ];
+  return HOOK_DEFS.map(def => installHook(hooksDir, def));
 }
 
 export function uninstallGitHooks(projectDir: string): string[] {
@@ -142,10 +202,7 @@ export function uninstallGitHooks(projectDir: string): string[] {
   if (!gitRoot) return ['Not a git repository'];
 
   const hooksDir = getHooksDir(gitRoot);
-  return [
-    uninstallHook(hooksDir, 'post-commit', '// nodesify-graphify-hook-start', '// nodesify-graphify-hook-end'),
-    uninstallHook(hooksDir, 'post-checkout', '// nodesify-graphify-checkout-hook-start', '// nodesify-graphify-checkout-hook-end'),
-  ];
+  return HOOK_DEFS.map(def => uninstallHook(hooksDir, def));
 }
 
 export function statusGitHooks(projectDir: string): string[] {
@@ -155,16 +212,19 @@ export function statusGitHooks(projectDir: string): string[] {
   const hooksDir = getHooksDir(gitRoot);
   const results: string[] = [];
 
-  for (const [name, marker] of [
-    ['post-commit', '// nodesify-graphify-hook-start'],
-    ['post-checkout', '// nodesify-graphify-checkout-hook-start'],
-  ] as [string, string][]) {
-    const hookPath = path.join(hooksDir, name);
+  for (const def of HOOK_DEFS) {
+    const hookPath = path.join(hooksDir, def.hookName);
     if (fs.existsSync(hookPath)) {
       const content = fs.readFileSync(hookPath, 'utf-8');
-      results.push(content.includes(marker) ? `${name}: installed` : `${name}: not installed`);
+      if (content.includes(def.startMarker)) {
+        results.push(`${def.hookName}: installed`);
+      } else if (content.includes(def.legacyStartMarker)) {
+        results.push(`${def.hookName}: installed (legacy format - run hook install to migrate)`);
+      } else {
+        results.push(`${def.hookName}: not installed`);
+      }
     } else {
-      results.push(`${name}: not installed`);
+      results.push(`${def.hookName}: not installed`);
     }
   }
 

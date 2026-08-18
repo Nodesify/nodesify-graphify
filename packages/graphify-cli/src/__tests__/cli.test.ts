@@ -36,12 +36,14 @@ function createProgram(): Command {
     .command('run')
     .description('Run the full pipeline on a directory')
     .argument('<path>', 'Directory to analyze')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(() => {});
 
   program
     .command('update')
     .description('Run incremental AST-only rebuild')
     .argument('<path>', 'Directory to update')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(() => {});
 
   program
@@ -72,6 +74,37 @@ function createProgram(): Command {
     .description('Find shortest path between two nodes')
     .argument('<source>', 'Source node label')
     .argument('<target>', 'Target node label')
+    .option('--graph <path>', 'Path to project root', '.')
+    .action(() => {});
+
+  program
+    .command('affected')
+    .description('Show the blast radius of a node — everything impacted by changing it')
+    .argument('<node>', 'Node ID, label, or source file path')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--depth <n>', 'Maximum hops to traverse', '2')
+    .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+    .action(() => {});
+
+  program
+    .command('prs')
+    .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+    .argument('[count]', 'Number of PRs to analyze', '20')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+    .action(() => {});
+
+  program
+    .command('tree')
+    .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--out <file>', 'Output HTML file', 'tree.html')
+    .option('--max-children <n>', 'Max symbols shown per directory', '40')
+    .action(() => {});
+
+  program
+    .command('mcp')
+    .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
     .option('--graph <path>', 'Path to project root', '.')
     .action(() => {});
 
@@ -132,7 +165,7 @@ for (const cmd of requiredCommands) {
 }
 
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs'];
 for (const cmd of newCommands) {
   assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }

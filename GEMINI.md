@@ -9,7 +9,7 @@ Rust workspace (12 crates) + Node.js CLI:
 - `crates/graphify-core` — types (`FileType`, `GraphStats`), `GraphifyError`, SQLite schema (6 tables), path validation and sanitization
 - `crates/graphify-paths` — path normalization and `.graphify` directory management
 - `crates/graphify-detect` — file discovery, classification, incremental change detection via SHA-256 manifest
-- `crates/graphify-extract` — tree-sitter AST extraction (20 languages), per-language configs in `src/langs/`. Extraction schema types (`Extraction`, `ExtractedNode`, `ExtractedEdge`) in `src/schema.rs`.
+- `crates/graphify-extract` — tree-sitter AST extraction (21 languages), per-language configs in `src/langs/`. Extraction schema types (`Extraction`, `ExtractedNode`, `ExtractedEdge`) in `src/schema.rs`.
 - `crates/graphify-build` — merge extractions into SQLite graph with deduplication
 - `crates/graphify-cluster` — label propagation community detection (petgraph)
 - `crates/graphify-analyze` — god nodes, surprising cross-community connections, suggested questions
@@ -35,6 +35,10 @@ nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]                      # Shortest path
+nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
+nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
+nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
+nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                             # Graph statistics
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml]  # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs
@@ -48,7 +52,7 @@ nodesify-graphify hook install|uninstall|status                 # Git hook manag
 
 ### Supported languages
 
-Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS. (Note: Kotlin support is currently disabled due to tree-sitter version incompatibility.)
+Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Kotlin, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS.
 
 ### Build
 

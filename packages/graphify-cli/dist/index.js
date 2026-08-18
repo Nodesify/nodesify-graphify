@@ -9,6 +9,10 @@ const explain_1 = require("./commands/explain");
 const export_1 = require("./commands/export");
 const query_1 = require("./commands/query");
 const path_1 = require("./commands/path");
+const affected_1 = require("./commands/affected");
+const mcp_1 = require("./commands/mcp");
+const tree_1 = require("./commands/tree");
+const prs_1 = require("./commands/prs");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -28,11 +32,13 @@ program
     .command('run')
     .description('Run the full pipeline on a directory')
     .argument('<path>', 'Directory to analyze')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(run_1.runCommand);
 program
     .command('update')
     .description('Run incremental AST-only rebuild')
     .argument('<path>', 'Directory to update')
+    .option('--no-dedup', 'Skip near-duplicate node merging')
     .action(update_1.updateCommand);
 program
     .command('watch')
@@ -62,6 +68,14 @@ program
     .argument('<target>', 'Target node label')
     .option('--graph <path>', 'Path to project root', '.')
     .action(path_1.pathCommand);
+program
+    .command('affected')
+    .description('Show the blast radius of a node — everything impacted by changing it')
+    .argument('<node>', 'Node ID, label, or source file path')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--depth <n>', 'Maximum hops to traverse', '2')
+    .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+    .action(affected_1.affectedCommand);
 program
     .command('stats')
     .description('Show graph statistics')
@@ -98,6 +112,25 @@ program
     .option('--limit <n>', 'Number of entries to show', '20')
     .option('--graph <path>', 'Path to project root', '.')
     .action(history_1.historyCommand);
+program
+    .command('mcp')
+    .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .action(mcp_1.mcpCommand);
+program
+    .command('tree')
+    .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--out <file>', 'Output HTML file', 'tree.html')
+    .option('--max-children <n>', 'Max symbols shown per directory', '40')
+    .action(tree_1.treeCommand);
+program
+    .command('prs')
+    .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+    .argument('[count]', 'Number of PRs to analyze', '20')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+    .action(prs_1.prsCommand);
 program
     .command('status')
     .description('Check graph health and staleness')

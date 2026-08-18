@@ -7,6 +7,10 @@ import { explainCommand } from './commands/explain';
 import { exportCommand } from './commands/export';
 import { queryCommand } from './commands/query';
 import { pathCommand } from './commands/path';
+import { affectedCommand } from './commands/affected';
+import { mcpCommand } from './commands/mcp';
+import { treeCommand } from './commands/tree';
+import { prsCommand } from './commands/prs';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -28,12 +32,14 @@ program
   .command('run')
   .description('Run the full pipeline on a directory')
   .argument('<path>', 'Directory to analyze')
+  .option('--no-dedup', 'Skip near-duplicate node merging')
   .action(runCommand);
 
 program
   .command('update')
   .description('Run incremental AST-only rebuild')
   .argument('<path>', 'Directory to update')
+  .option('--no-dedup', 'Skip near-duplicate node merging')
   .action(updateCommand);
 
 program
@@ -67,6 +73,15 @@ program
   .argument('<target>', 'Target node label')
   .option('--graph <path>', 'Path to project root', '.')
   .action(pathCommand);
+
+program
+  .command('affected')
+  .description('Show the blast radius of a node — everything impacted by changing it')
+  .argument('<node>', 'Node ID, label, or source file path')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--depth <n>', 'Maximum hops to traverse', '2')
+  .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+  .action(affectedCommand);
 
 program
   .command('stats')
@@ -109,6 +124,28 @@ program
   .option('--limit <n>', 'Number of entries to show', '20')
   .option('--graph <path>', 'Path to project root', '.')
   .action(historyCommand);
+
+program
+  .command('mcp')
+  .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+  .option('--graph <path>', 'Path to project root', '.')
+  .action(mcpCommand);
+
+program
+  .command('tree')
+  .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--out <file>', 'Output HTML file', 'tree.html')
+  .option('--max-children <n>', 'Max symbols shown per directory', '40')
+  .action(treeCommand);
+
+program
+  .command('prs')
+  .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+  .argument('[count]', 'Number of PRs to analyze', '20')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+  .action(prsCommand);
 
 program
   .command('status')

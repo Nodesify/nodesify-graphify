@@ -72,6 +72,26 @@ const EXTENSION_TO_LANGUAGE: &[(&str, &str)] = &[
 ];
 
 pub fn classify_file(path: &Path) -> Option<FileType> {
+    // Manifests first: `go.mod` has a `.mod` extension, the rest `.toml`/
+    // `.json`/`.xml` — none of which map to a language otherwise.
+    if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| graphify_core::MANIFEST_FILENAMES.contains(&n.to_lowercase().as_str()))
+        .unwrap_or(false)
+    {
+        return Some(FileType::Code);
+    }
+    // Minified vendor bundles (vis-network.min.js, vendored .min.css) are
+    // extraction noise: millions of meaningless symbols that dominate the
+    // god-node ranking.
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let lower = name.to_lowercase();
+        if lower.ends_with(".min.js") || lower.ends_with(".min.mjs") || lower.ends_with(".min.css")
+        {
+            return None;
+        }
+    }
     let ext = path.extension()?.to_str()?.to_lowercase();
     let ext_with_dot = format!(".{}", ext);
     if CODE_EXTENSIONS.contains(&ext_with_dot.as_str()) {
@@ -107,6 +127,10 @@ pub fn language_for_extension(ext: &str) -> Option<&'static str> {
 fn file_hash(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
     let mut hasher = Sha256::new();
+    // Versioned with the extraction scheme tag so scheme changes turn every
+    // file "changed" once and force a clean full rebuild on upgrade.
+    hasher.update(graphify_core::EXTRACTION_HASH_VERSION.as_bytes());
+    hasher.update([0u8]);
     hasher.update(&bytes);
     Ok(format!("{:x}", hasher.finalize()))
 }

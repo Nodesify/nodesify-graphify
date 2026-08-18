@@ -10,6 +10,17 @@ npm install -g @nodesify/graphify
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
+## What's new in 0.4.0
+
+- **`affected`** — blast-radius analysis: what breaks if you change a node
+- **MCP server** — `nodesify-graphify mcp` exposes the graph to AI agents (8 tools)
+- **Entity dedup** — near-duplicate symbols merged automatically (MinHash + Jaro-Winkler; `--no-dedup` to skip)
+- **Community labels** — communities named after their hub node, with cohesion scores
+- **Dependency manifests** — pyproject.toml / Cargo.toml / go.mod / package.json / pom.xml become `pkg_*` nodes with `depends_on` edges
+- **`tree`** — collapsible filesystem tree of every symbol (self-contained HTML)
+- **`prs`** — open PRs mapped onto the graph with merge-order risk detection
+- Stable Unicode node IDs, qualified-call resolution across files, and a git-hook installer migration fix
+
 ## Usage
 
 ```bash
@@ -19,6 +30,10 @@ nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]              # Shortest path between two concepts
+nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
+nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
+nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
+nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
@@ -86,7 +101,7 @@ Each crate has unit tests using in-memory SQLite (`open_db_in_memory()`) and `te
 
 ## Language support
 
-Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS — via tree-sitter grammars. (Note: Kotlin support is currently disabled due to tree-sitter version incompatibility).
+Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Kotlin, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS — via tree-sitter grammars.
 
 Each language has its own config module in `crates/graphify-extract/src/langs/`. Adding a new language means adding a new file there and registering it in `langs/mod.rs`.
 

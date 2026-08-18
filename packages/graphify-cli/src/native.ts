@@ -62,3 +62,6 @@ export const clusterOnly = binding.clusterOnly;
 export const mergeGraphs = binding.mergeGraphs;
 export const diffGraphs = binding.diffGraphs;
 export const graphHistory = binding.graphHistory;
+export const affectedNode = binding.affectedNode;
+export const runMcpServer = binding.runMcpServer;
+export const exportTree = binding.exportTree;

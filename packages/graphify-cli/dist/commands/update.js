@@ -36,10 +36,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateCommand = updateCommand;
 const pathMod = __importStar(require("path"));
 const native_1 = require("../native");
-async function updateCommand(path) {
+async function updateCommand(path, opts) {
     try {
         console.log(`Running incremental rebuild on: ${path}`);
-        const result = (0, native_1.updatePipeline)(path);
+        const result = (0, native_1.updatePipeline)(path, opts.dedup === false);
         console.log(`Nodes: ${result.nodesAdded}, Edges: ${result.edgesAdded}, Communities: ${result.communities}`);
         console.log(`Report updated at: ${pathMod.join(path, '.graphify', 'graph_report.md')}`);
     }

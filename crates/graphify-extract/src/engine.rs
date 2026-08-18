@@ -4,8 +4,10 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Parser};
 
+use crate::builtins::is_language_builtin;
 use crate::langs::{self, LanguageConfig};
 use crate::schema::{ExtractedEdge, ExtractedNode, Extraction};
+use graphify_core::ids::normalize_id;
 use graphify_core::GraphifyError;
 use graphify_paths::normalize;
 
@@ -13,31 +15,29 @@ use graphify_paths::normalize;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Join parts with `::` for hierarchical node IDs (e.g. "main.py::Greeter::greet()").
-/// Preserves original casing. Sanitizes only path separators and whitespace.
+/// Join parts with `::` for hierarchical node IDs (e.g. "src_lib::greeter::greet").
+/// Each part goes through `normalize_id` (casefold+NFKC stable), so identical
+/// entities always produce identical ids regardless of source casing or
+/// Unicode compatibility forms.
 fn make_node_id(parts: &[&str]) -> String {
     parts
         .iter()
-        .map(|p| p.trim().replace('\\', "/").replace('/', "_"))
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| normalize_id(p))
         .collect::<Vec<_>>()
         .join("::")
 }
 
-/// Create a short target ID for cross-file references (imports, calls).
-/// Normalizes to lowercase alphanumeric + underscores for fuzzy matching.
+/// Create a target ID for cross-file references (imports, calls).
+/// Qualified names (`pipeline::load_graph_db`, `PathBuf::from`) keep their
+/// `::` segment structure so they can match hierarchical definition ids;
+/// each segment is normalized for fuzzy matching.
 fn make_target_id(name: &str) -> String {
-    name.to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_end_matches('_')
-        .to_string()
+    name.split("::")
+        .map(normalize_id)
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 /// Return `parent_dir_stem/file_stem` for uniqueness.
@@ -79,10 +79,14 @@ fn second_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     child
 }
 
-/// SHA-256 hash of the file contents.
+/// SHA-256 hash of the file contents, versioned with the extraction scheme
+/// tag so scheme changes (e.g. the id-format change in v2) invalidate all
+/// cached extractions and force one clean re-extraction.
 fn file_hash(path: &Path) -> Result<String, GraphifyError> {
     let bytes = std::fs::read(path)?;
     let mut hasher = Sha256::new();
+    hasher.update(graphify_core::EXTRACTION_HASH_VERSION.as_bytes());
+    hasher.update([0u8]);
     hasher.update(&bytes);
     Ok(format!("{:x}", hasher.finalize()))
 }
@@ -508,16 +512,20 @@ fn walk_calls<'a>(state: &mut ExtractionState<'a>, caller_id: &str, body: &Node<
     if kind == state.cfg.call_type {
         let callee_name = extract_callee_name(body, state.source);
         if let Some(name) = callee_name {
-            let callee_id = make_target_id(&name);
-            state.edges.push(ExtractedEdge {
-                source: caller_id.to_string(),
-                target: callee_id,
-                relation: "calls".to_string(),
-                confidence: "INFERRED".to_string(),
-                confidence_score: Some(0.7),
-                source_file: state.file_path.clone(),
-                source_line: Some(body.start_position().row as u32),
-            });
+            // Skip language builtins: they resolve to bare-name stubs that
+            // merge corpus-wide and pollute god-node rankings.
+            if !is_language_builtin(&name, state.cfg.name) {
+                let callee_id = make_target_id(&name);
+                state.edges.push(ExtractedEdge {
+                    source: caller_id.to_string(),
+                    target: callee_id,
+                    relation: "calls".to_string(),
+                    confidence: "INFERRED".to_string(),
+                    confidence_score: Some(0.7),
+                    source_file: state.file_path.clone(),
+                    source_line: Some(body.start_position().row as u32),
+                });
+            }
         }
     }
 
@@ -1033,6 +1041,18 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
 
         let hash = file_hash(file_path)?;
 
+        // Manifests: deterministic package/dependency ingestion, no AST
+        if crate::manifest::is_manifest(file_path) {
+            if let Some(cached) = check_cache(db, file_path, &hash) {
+                results.push(cached);
+                continue;
+            }
+            let extraction = crate::manifest::extract_manifest(file_path);
+            save_cache(db, file_path, &hash, &extraction);
+            results.push(extraction);
+            continue;
+        }
+
         // Markdown: plain-text extraction (no tree-sitter)
         if ext == "md" || ext == "mdx" {
             if let Some(cached) = check_cache(db, file_path, &hash) {
@@ -1137,8 +1157,20 @@ fn resolve_cross_file_references(results: &mut [Extraction]) {
     for ext in results.iter_mut() {
         for edge in ext.edges.iter_mut() {
             if edge.relation == "calls" || edge.relation == "imports" {
+                // Try the full target, then just its last segment — a call
+                // `pipeline::load_graph_db()` targets "pipeline::load_graph_db"
+                // but the definition is "src_pipeline::load_graph_db".
                 let target_lower = edge.target.to_lowercase();
-                if let Some(real_id) = known_ids.get(&target_lower) {
+                let last_segment = edge
+                    .target
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(&edge.target)
+                    .to_lowercase();
+                let real_id = known_ids
+                    .get(&target_lower)
+                    .or_else(|| known_ids.get(&last_segment));
+                if let Some(real_id) = real_id {
                     if real_id != &edge.target {
                         edge.target = real_id.clone();
                         if edge.confidence == "INFERRED" {
@@ -1189,6 +1221,35 @@ mod tests {
             "missing function"
         );
         assert!(ext.edges.iter().any(|e| e.relation == "contains"));
+        // print() is a Python builtin — must not produce a call edge
+        assert!(
+            !ext.edges
+                .iter()
+                .any(|e| e.relation == "calls" && e.target == "print"),
+            "builtin call should be filtered"
+        );
+    }
+
+    #[test]
+    fn node_ids_are_normalized() {
+        let dir = tempfile::tempdir().unwrap();
+        let py = dir.path().join("My-Module.PY");
+        fs::write(&py, "class Greeter:\n    def greet(self):\n        pass\n").unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[py], &db).unwrap();
+        let ids: Vec<&String> = results[0].nodes.iter().map(|n| &n.id).collect();
+        assert!(
+            ids.iter().any(|id| id.ends_with("::greeter")),
+            "class id should be normalized lowercase: {ids:?}"
+        );
+        assert!(
+            ids.iter().any(|id| id.contains("my_module")),
+            "file stem 'My-Module' should normalize to my_module: {ids:?}"
+        );
+        assert!(
+            ids.iter().any(|id| id.ends_with("::greet")),
+            "method id should drop parens: {ids:?}"
+        );
     }
 
     #[test]
@@ -1232,12 +1293,35 @@ mod tests {
     }
 
     #[test]
+    fn qualified_rust_calls_resolve_across_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let def = dir.path().join("pipeline.rs");
+        fs::write(&def, "pub fn load_graph_db() -> u32 {\n    1\n}\n").unwrap();
+        let caller = dir.path().join("lib.rs");
+        fs::write(
+            &caller,
+            "fn wrapper() {\n    let n = pipeline::load_graph_db();\n    let _ = n;\n}\n",
+        )
+        .unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[def, caller], &db).unwrap();
+        let all_edges: Vec<&ExtractedEdge> = results.iter().flat_map(|r| r.edges.iter()).collect();
+        assert!(
+            all_edges
+                .iter()
+                .any(|e| e.relation == "calls" && e.target.ends_with("::load_graph_db")),
+            "qualified call should resolve to the definition id, got targets: {:?}",
+            all_edges.iter().map(|e| &e.target).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn extraction_uses_cache() {
         let dir = tempfile::tempdir().unwrap();
         let py = dir.path().join("main.py");
         fs::write(&py, "def hello(): pass\n").unwrap();
         let db = open_db_in_memory().unwrap();
-        let r1 = extract(&[py.clone()], &db).unwrap();
+        let r1 = extract(std::slice::from_ref(&py), &db).unwrap();
         let r2 = extract(&[py], &db).unwrap();
         assert_eq!(r1[0].nodes.len(), r2[0].nodes.len());
     }

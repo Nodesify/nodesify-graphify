@@ -36,10 +36,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCommand = runCommand;
 const pathMod = __importStar(require("path"));
 const native_1 = require("../native");
-async function runCommand(path) {
+async function runCommand(path, opts) {
     try {
         console.log(`Running graphify pipeline on: ${path}`);
-        const result = (0, native_1.runPipeline)(path);
+        const result = (0, native_1.runPipeline)(path, opts.dedup === false);
         console.log(`Nodes added: ${result.nodesAdded}`);
         console.log(`Edges added: ${result.edgesAdded}`);
         console.log(`Communities: ${result.communities}`);
