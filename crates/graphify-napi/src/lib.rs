@@ -1,11 +1,12 @@
 pub mod export_graphml;
 pub mod export_html;
+pub mod export_tree;
 pub mod merge;
 pub mod pipeline;
 pub mod query;
 
 use napi_derive::napi;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ---- napi-exposed types ----
 
@@ -286,6 +287,23 @@ pub fn affected_node(
             })
             .collect(),
     })
+}
+
+#[napi]
+pub fn export_tree(root: String, out: String, max_children: Option<i32>) -> napi::Result<i32> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let out_path = Path::new(&out);
+    let out_path = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        root_pb.join(out_path)
+    };
+    let count =
+        export_tree::export_tree(&db, &out_path, max_children.unwrap_or(40).max(1) as usize)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
 }
 
 #[napi]

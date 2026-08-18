@@ -530,6 +530,7 @@ dependencies = [
  "napi-derive",
  "petgraph",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

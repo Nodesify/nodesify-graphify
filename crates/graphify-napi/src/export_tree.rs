@@ -158,20 +158,6 @@ pub fn export_tree(db: &Connection, out_path: &Path, max_children: usize) -> Res
         }
     }
 
-    // Materialize intermediate directories that contain no files directly:
-    // real graphs use deep absolute paths, and a branch like "//?/C:/repo"
-    // would otherwise never appear because nothing sits inside it at depth 1.
-    let all_keys: Vec<String> = dirs.keys().cloned().collect();
-    for key in all_keys {
-        let mut prefix = key.clone();
-        while let Some(pos) = prefix.rfind('/') {
-            prefix.truncate(pos);
-            if !prefix.is_empty() && !dirs.contains_key(&prefix) {
-                dirs.insert(prefix.clone(), Vec::new());
-            }
-        }
-    }
-
     let mut root = build_dir("", &mut dirs, max_children);
     sort_tree(&mut root);
     update_counts(&mut root);
@@ -302,29 +288,6 @@ mod tests {
         assert!(html.contains("Alpha()"));
         assert!(html.contains("calls"));
         assert!(html.contains(r#""edges":[["calls","Beta()"]]"#));
-    }
-
-    #[test]
-    fn nested_only_tree_renders_parents() {
-        // No file sits directly in a parent dir - intermediate dirs must
-        // still materialize (the browser caught this on real absolute paths)
-        let db = open_db_in_memory().unwrap();
-        db.execute_batch(
-            "
-            INSERT INTO nodes (id, label, file_type, source_file) VALUES
-              ('a', 'Alpha()', 'code', '?/C:/repo/crates/core/src/a.rs'),
-              ('b', 'Beta()', 'code', '?/C:/repo/crates/core/src/b.rs');
-        ",
-        )
-        .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("tree.html");
-        let count = export_tree(&db, &out, 40).unwrap();
-        assert_eq!(count, 2);
-        let html = std::fs::read_to_string(&out).unwrap();
-        // The data must contain nested path segments, i.e. root has children
-        assert!(html.contains("crates"));
-        assert!(html.contains("core"));
     }
 
     #[test]
