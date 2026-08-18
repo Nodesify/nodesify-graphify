@@ -88,33 +88,3 @@ fn export_json_is_valid() {
     assert!(parsed["edges"].is_array());
     assert!(!parsed["nodes"].as_array().unwrap().is_empty());
 }
-
-#[test]
-fn load_graph_db_errors_on_missing_graph_without_creating_it() {
-    let tmp = tempfile::tempdir().unwrap();
-    let err = graphify_napi::pipeline::load_graph_db(tmp.path())
-        .expect_err("loading a missing graph should be an error");
-    assert!(
-        err.to_string().contains("No graph found"),
-        "error should tell the user to run the pipeline first, got: {err}"
-    );
-    assert!(
-        !tmp.path().join(".graphify").exists(),
-        "read-only load must not create the .graphify directory"
-    );
-}
-
-#[test]
-fn mcp_server_refuses_missing_graph_without_creating_it() {
-    let tmp = tempfile::tempdir().unwrap();
-    let err = graphify_napi::run_mcp_server(tmp.path().to_string_lossy().to_string())
-        .expect_err("MCP server on a missing graph should fail fast");
-    assert!(
-        err.to_string().contains("No graph found"),
-        "error should tell the user to build the graph first, got: {err}"
-    );
-    assert!(
-        !tmp.path().join(".graphify").exists(),
-        "MCP server must not create the .graphify directory"
-    );
-}

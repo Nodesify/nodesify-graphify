@@ -1,8 +1,5 @@
 // graphify-build: merge extractions into SQLite graph
 
-pub mod dedup;
-pub mod minhash;
-
 use graphify_core::Result;
 use graphify_extract::Extraction;
 use graphify_paths::normalize;
@@ -61,9 +58,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
 
             let file_type = match node.node_type.as_str() {
                 "rationale" => "rationale",
-                "concept" | "entity" | "pattern" | "module" | "reference" => {
-                    node.node_type.as_str()
-                }
+                "concept" | "entity" | "pattern" | "module" => node.node_type.as_str(),
                 _ => {
                     if extraction.language == "markdown" {
                         "document"
@@ -77,14 +72,13 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
             // the same id (stubs are created speculatively by edges and may
             // land before the definition's own extraction is processed).
             tx.execute(
-                "INSERT INTO nodes (id, label, file_type, source_file, source_line, docstring, signature) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "INSERT INTO nodes (id, label, file_type, source_file, source_line, docstring) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(id) DO UPDATE SET
                    label = excluded.label,
                    file_type = excluded.file_type,
                    source_file = excluded.source_file,
                    source_line = excluded.source_line,
-                   docstring = excluded.docstring,
-                   signature = excluded.signature
+                   docstring = excluded.docstring
                  WHERE nodes.file_type = 'stub'",
                 rusqlite::params![
                     node.id,
@@ -93,10 +87,6 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                     normalize(&node.source_file),
                     node.source_line,
                     node.docstring.as_deref().map(graphify_core::sanitize_docstring),
-                    node
-                        .signature
-                        .as_deref()
-                        .map(graphify_core::sanitize_docstring),
                 ],
             )?;
             nodes_added += 1;
@@ -119,7 +109,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
             )?;
 
             tx.execute(
-                "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file, source_line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![
                     edge.source,
                     edge.target,
@@ -127,7 +117,6 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                     edge.confidence,
                     edge.confidence_score,
                     normalize(&edge.source_file),
-                    edge.source_line,
                 ],
             )?;
             edges_added += 1;
@@ -185,7 +174,6 @@ mod tests {
                     source_file: PathBuf::from(path),
                     source_line: Some(1),
                     docstring: None,
-                    signature: None,
                     node_type: "function".into(),
                 })
                 .collect(),
@@ -242,11 +230,8 @@ mod tests {
             .unwrap();
         assert_eq!(file_type, "stub");
 
-        let definition = make_extraction_at(
-            "pipeline.rs",
-            vec![("srcpipeline::helper", "helper()")],
-            vec![],
-        );
+        let definition =
+            make_extraction_at("pipeline.rs", vec![("srcpipeline::helper", "helper()")], vec![]);
         build(&[definition], &db).unwrap();
 
         let (file_type, label): (String, String) = db
@@ -293,7 +278,6 @@ mod tests {
                 source_file: PathBuf::from("a.py"),
                 source_line: Some(1),
                 docstring: None,
-                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -311,7 +295,6 @@ mod tests {
                 source_file: PathBuf::from("b.py"),
                 source_line: Some(5),
                 docstring: None,
-                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -349,7 +332,6 @@ mod tests {
                 source_file: PathBuf::from("a.py"),
                 source_line: Some(1),
                 docstring: None,
-                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -364,7 +346,6 @@ mod tests {
                 source_file: PathBuf::from("b.py"),
                 source_line: Some(1),
                 docstring: None,
-                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![ExtractedEdge {

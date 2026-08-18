@@ -90,19 +90,16 @@ fn resolve_seed(db: &Connection, query: &str) -> graphify_core::Result<String> {
     }
 
     let lower = query.to_lowercase();
-    let mut stmt = db.prepare("SELECT id, source_file FROM nodes WHERE lower(label) = ?1")?;
-    let candidates: Vec<(String, String)> = stmt
-        .query_map(rusqlite::params![lower], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })?
+    let mut stmt = db.prepare("SELECT id FROM nodes WHERE lower(label) = ?1")?;
+    let candidates: Vec<String> = stmt
+        .query_map(rusqlite::params![lower], |r| r.get::<_, String>(0))?
         .filter_map(|r| r.ok())
         .collect();
     match candidates.len() {
-        1 => return Ok(candidates[0].0.clone()),
+        1 => return Ok(candidates[0].clone()),
         n if n > 1 => {
             return Err(GraphifyError::Graph(format!(
-                "ambiguous node '{query}' — {n} nodes share that label; use one of: {}",
-                describe_candidates(&candidates)
+                "ambiguous node '{query}' — {n} nodes share that label; use the node id"
             )))
         }
         _ => {}
@@ -111,38 +108,18 @@ fn resolve_seed(db: &Connection, query: &str) -> graphify_core::Result<String> {
     // Source-file suffix: "src/lib.rs" or "lib.rs" should find the file node.
     let norm_query = query.replace('\\', "/");
     let suffix = format!("%{}", norm_query.trim_start_matches('/'));
-    let mut stmt = db.prepare("SELECT id, source_file FROM nodes WHERE source_file LIKE ?1")?;
-    let candidates: Vec<(String, String)> = stmt
-        .query_map(rusqlite::params![suffix], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })?
+    let mut stmt = db.prepare("SELECT id FROM nodes WHERE source_file LIKE ?1")?;
+    let candidates: Vec<String> = stmt
+        .query_map(rusqlite::params![suffix], |r| r.get::<_, String>(0))?
         .filter_map(|r| r.ok())
         .collect();
     match candidates.len() {
-        1 => Ok(candidates[0].0.clone()),
+        1 => Ok(candidates[0].clone()),
         n if n > 1 => Err(GraphifyError::Graph(format!(
-            "ambiguous path '{query}' — {n} nodes match; use one of: {}",
-            describe_candidates(&candidates)
+            "ambiguous path '{query}' — {n} nodes match; use the node id"
         ))),
         _ => Err(GraphifyError::Graph(format!("node not found: '{query}'"))),
     }
-}
-
-/// Render ambiguous matches as actionable `id (file)` options so an agent
-/// can retry with an exact id instead of exploring.
-fn describe_candidates(candidates: &[(String, String)]) -> String {
-    candidates
-        .iter()
-        .take(5)
-        .map(|(id, file)| {
-            if file.is_empty() {
-                id.clone()
-            } else {
-                format!("{id} ({file})")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Compute the blast radius of `query`: everything that references it,
@@ -187,13 +164,8 @@ pub fn affected(
         None => IMPACT_RELATIONS.iter().copied().collect(),
     };
 
-    // Reverse adjacency: target → [(source, relation, edge source_file)].
-    // Built once so the BFS is O(V + E) instead of rescanning every edge
-    // per frontier node.
-    let mut incoming: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
-    // Members of the seed (seed --contains/method--> member), for the
-    // one-hop seed expansion below.
-    let mut seed_members: Vec<String> = Vec::new();
+    // (source, target, relation, edge source_file)
+    let mut edges: Vec<(String, String, String, String)> = Vec::new();
     {
         let mut stmt = db.prepare("SELECT source, target, relation, source_file FROM edges")?;
         let rows = stmt.query_map([], |r| {
@@ -204,11 +176,8 @@ pub fn affected(
                 r.get::<_, String>(3)?,
             ))
         })?;
-        for (src, tgt, rel, via) in rows.flatten() {
-            if src == seed && (rel == "contains" || rel == "method") {
-                seed_members.push(tgt.clone());
-            }
-            incoming.entry(tgt).or_default().push((src, rel, via));
+        for e in rows.flatten() {
+            edges.push(e);
         }
     }
 
@@ -233,9 +202,9 @@ pub fn affected(
         }
     }
 
-    for tgt in seed_members {
-        if visited.insert(tgt.clone()) {
-            frontier.push_back((tgt, 0));
+    for (src, tgt, rel, _) in &edges {
+        if src == &seed && (rel == "contains" || rel == "method") && visited.insert(tgt.clone()) {
+            frontier.push_back((tgt.clone(), 0));
         }
     }
 
@@ -244,9 +213,8 @@ pub fn affected(
         if d >= depth {
             continue;
         }
-        let empty = Vec::new();
-        for (src, rel, via) in incoming.get(&current).unwrap_or(&empty) {
-            if !allowed.contains(rel.as_str()) || !visited.insert(src.clone()) {
+        for (src, tgt, rel, via) in &edges {
+            if tgt != &current || !allowed.contains(rel.as_str()) || !visited.insert(src.clone()) {
                 continue;
             }
             let label = nodes

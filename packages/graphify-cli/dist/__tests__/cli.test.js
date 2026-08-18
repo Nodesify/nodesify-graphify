@@ -67,6 +67,14 @@ function createProgram() {
         .option('--graph <path>', 'Path to project root', '.')
         .action(() => { });
     program
+        .command('affected')
+        .description('Show the blast radius of a node — everything impacted by changing it')
+        .argument('<node>', 'Node ID, label, or source file path')
+        .option('--graph <path>', 'Path to project root', '.')
+        .option('--depth <n>', 'Maximum hops to traverse', '2')
+        .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+        .action(() => { });
+    program
         .command('stats')
         .description('Show graph statistics')
         .option('--graph <path>', 'Path to project root', '.')

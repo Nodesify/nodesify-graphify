@@ -1,4 +1,6 @@
-// graphify-analyze: god nodes, surprises, and question detection
+// graphify-analyze: god nodes, surprises, question detection, and impact analysis
+
+pub mod affected;
 
 use rusqlite::Connection;
 

@@ -68,4 +68,4 @@ The graph is stored in `.graphify/db.sqlite` with the following key tables:
 
 Extraction rules are defined in `crates/graphify-extract/src/langs/`. Each language module provides a `LanguageConfig` specifying which AST nodes represent classes, functions, and relationships.
 
-Currently supported: Python, JS, TS, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS. (Kotlin is currently disabled).
+Currently supported: Python, JS, TS, Rust, Go, Java, C, C++, Ruby, Swift, Kotlin, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS.

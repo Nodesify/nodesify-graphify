@@ -29,6 +29,7 @@ nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]                      # Shortest path
+nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
 nodesify-graphify stats [--graph .]                             # Graph statistics
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs
@@ -40,7 +41,7 @@ nodesify-graphify hook install|uninstall|status                 # Git hook manag
 
 ### Supported languages
 
-Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS. (Note: Kotlin support is currently disabled).
+Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, Ruby, Swift, Kotlin, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS.
 
 ### Build
 

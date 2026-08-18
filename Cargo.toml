@@ -9,13 +9,10 @@ members = [
     "crates/graphify-cluster",
     "crates/graphify-analyze",
     "crates/graphify-report",
-    "crates/graphify-query",
-    "crates/graphify-mcp",
     "crates/graphify-napi",
     "crates/graphify-semantic",
     "crates/graphify-ingest",
     "crates/graphify-pdf",
-    "crates/graphify-embed",
 ]
 
 [workspace.dependencies]
@@ -27,12 +24,9 @@ graphify-build = { path = "crates/graphify-build" }
 graphify-cluster = { path = "crates/graphify-cluster" }
 graphify-analyze = { path = "crates/graphify-analyze" }
 graphify-report = { path = "crates/graphify-report" }
-graphify-query = { path = "crates/graphify-query" }
-graphify-mcp = { path = "crates/graphify-mcp" }
 graphify-semantic = { path = "crates/graphify-semantic" }
 graphify-ingest = { path = "crates/graphify-ingest" }
 graphify-pdf = { path = "crates/graphify-pdf" }
-graphify-embed = { path = "crates/graphify-embed" }
 rusqlite = { version = "0.34", features = ["bundled"] }
 petgraph = "0.7"
 thiserror = "2"
@@ -65,8 +59,6 @@ tree-sitter-zig = "1.1"
 tree-sitter-css = "0.25"
 tree-sitter-kotlin-ng = "1.1"
 ureq = "3"
-pdf-extract = "0.12"
+pdf-extract = "0.7"
 unicode-normalization = "0.1"
 toml = "0.8"
-strsim = "0.11"
-base64 = "0.22"
