@@ -9,6 +9,7 @@ const explain_1 = require("./commands/explain");
 const export_1 = require("./commands/export");
 const query_1 = require("./commands/query");
 const path_1 = require("./commands/path");
+const affected_1 = require("./commands/affected");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -62,6 +63,14 @@ program
     .argument('<target>', 'Target node label')
     .option('--graph <path>', 'Path to project root', '.')
     .action(path_1.pathCommand);
+program
+    .command('affected')
+    .description('Show the blast radius of a node — everything impacted by changing it')
+    .argument('<node>', 'Node ID, label, or source file path')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--depth <n>', 'Maximum hops to traverse', '2')
+    .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+    .action(affected_1.affectedCommand);
 program
     .command('stats')
     .description('Show graph statistics')

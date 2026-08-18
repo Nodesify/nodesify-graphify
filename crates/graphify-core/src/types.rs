@@ -39,6 +39,16 @@ pub struct GraphStats {
     pub file_count: usize,
 }
 
+/// Dependency manifests ingested deterministically (never via LLM).
+/// Shared by detect (file classification) and extract (manifest parsing).
+pub const MANIFEST_FILENAMES: &[&str] = &[
+    "pyproject.toml",
+    "cargo.toml",
+    "go.mod",
+    "package.json",
+    "pom.xml",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

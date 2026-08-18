@@ -2,6 +2,21 @@
 
 use graphify_analyze::AnalysisResult;
 use rusqlite::Connection;
+use std::collections::HashMap;
+
+/// Hub-based community labels from the communities table, falling back to
+/// plain numbers when missing.
+fn community_labels(db: &Connection) -> HashMap<i64, String> {
+    let mut stmt = match db.prepare("SELECT id, label FROM communities") {
+        Ok(stmt) => stmt,
+        Err(_) => return HashMap::new(),
+    };
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
+}
 
 pub fn generate_report(
     db: &Connection,
@@ -20,6 +35,16 @@ pub fn generate_report(
             |r| r.get(0),
         )
         .unwrap_or(0);
+    let labels = community_labels(db);
+    let label_of = |c: Option<u32>| -> String {
+        match c {
+            Some(c) => labels
+                .get(&(c as i64))
+                .cloned()
+                .unwrap_or_else(|| c.to_string()),
+            None => "—".into(),
+        }
+    };
 
     let mut report = String::new();
     report.push_str("# Graph Report\n\n");
@@ -33,13 +58,11 @@ pub fn generate_report(
         report.push_str("No hub nodes found.\n\n");
     } else {
         for node in &analysis.god_nodes {
-            let comm = node
-                .community
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "—".into());
             report.push_str(&format!(
                 "- **{}** (degree: {}, community: {})\n",
-                node.label, node.degree, comm
+                node.label,
+                node.degree,
+                label_of(node.community)
             ));
         }
         report.push('\n');
@@ -50,17 +73,13 @@ pub fn generate_report(
         report.push_str("No cross-community connections found.\n\n");
     } else {
         for edge in &analysis.surprising_connections {
-            let sc = edge
-                .source_community
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "?".into());
-            let tc = edge
-                .target_community
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "?".into());
             report.push_str(&format!(
-                "- **{}** -> **{}** ({}) [community {} -> {}]\n",
-                edge.source_label, edge.target_label, edge.relation, sc, tc
+                "- **{}** -> **{}** ({}) [{} -> {}]\n",
+                edge.source_label,
+                edge.target_label,
+                edge.relation,
+                label_of(edge.source_community),
+                label_of(edge.target_community)
             ));
         }
         report.push('\n');

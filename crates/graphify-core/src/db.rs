@@ -67,7 +67,16 @@ CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
 INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '1');
 ";
 
-/// Run any pending schema migrations. Currently only v1 exists.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS communities (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL,
+    cohesion REAL,
+    size INTEGER NOT NULL DEFAULT 0
+);
+";
+
+/// Run any pending schema migrations.
 fn run_migrations(conn: &Connection) -> Result<()> {
     let version: i64 = conn
         .query_row(
@@ -80,8 +89,14 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
     }
-    // Future migrations go here:
-    // if version < 2 { conn.execute_batch(SCHEMA_V2)?; }
+    if version < 2 {
+        // v2: community labels + cohesion (hub-based, LLM-free)
+        conn.execute_batch(SCHEMA_V2)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '2')",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -101,9 +116,8 @@ pub fn open_db(path: &std::path::Path) -> Result<Connection> {
         == 0;
     if is_new {
         conn.execute_batch(SCHEMA_V1)?;
-    } else {
-        run_migrations(&conn)?;
     }
+    run_migrations(&conn)?;
     Ok(conn)
 }
 
@@ -111,6 +125,7 @@ pub fn open_db_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
     conn.execute_batch(SCHEMA_V1)?;
+    run_migrations(&conn)?;
     Ok(conn)
 }
 
