@@ -11,6 +11,7 @@ const query_1 = require("./commands/query");
 const path_1 = require("./commands/path");
 const affected_1 = require("./commands/affected");
 const mcp_1 = require("./commands/mcp");
+const tree_1 = require("./commands/tree");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -115,6 +116,13 @@ program
     .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
     .option('--graph <path>', 'Path to project root', '.')
     .action(mcp_1.mcpCommand);
+program
+    .command('tree')
+    .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--out <file>', 'Output HTML file', 'tree.html')
+    .option('--max-children <n>', 'Max symbols shown per directory', '40')
+    .action(tree_1.treeCommand);
 program
     .command('status')
     .description('Check graph health and staleness')
