@@ -87,6 +87,14 @@ function createProgram(): Command {
     .action(() => {});
 
   program
+    .command('prs')
+    .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
+    .argument('[count]', 'Number of PRs to analyze', '20')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
+    .action(() => {});
+
+  program
     .command('tree')
     .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
     .option('--graph <path>', 'Path to project root', '.')
@@ -157,7 +165,7 @@ for (const cmd of requiredCommands) {
 }
 
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs'];
 for (const cmd of newCommands) {
   assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }
