@@ -289,6 +289,20 @@ pub fn affected_node(
 }
 
 #[napi]
+pub fn run_mcp_server(root: String) -> napi::Result<()> {
+    let root_pb = PathBuf::from(&root);
+    if !root_pb.exists() {
+        return Err(napi::Error::from_reason(format!(
+            "path does not exist: {}",
+            root_pb.display()
+        )));
+    }
+    let db_path =
+        graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    graphify_mcp::serve(&db_path).map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi]
 pub fn cluster_only(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(

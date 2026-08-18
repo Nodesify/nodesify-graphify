@@ -22,18 +22,8 @@ fn tools() -> Value {
             "question": {"type": "string"},
             "mode": {"type": "string", "enum": ["bfs", "dfs"], "default": "bfs"},
             "depth": {"type": "integer", "default": 2},
-            "budget": {"type": "integer", "default": 2000},
-            "directed": {"type": "boolean", "default": false,
-                "description": "Follow edges only in their stored direction (caller -> callee, importer -> module) instead of both ways."},
-            "detail": {"type": "string", "enum": ["all", "high"], "default": "all",
-                "description": "'high' keeps only EXTRACTED/DECLARED facts, dropping inferred and semantic edges."},
-            "cursor": {"type": "integer", "default": 0,
-                "description": "Continuation token from a previous truncated result: fetches the next slice of ranked nodes."}},
+            "budget": {"type": "integer", "default": 2000}},
             "required": ["question"]}},
-        {"name": "repo_map", "description": "Aider-style repo map: files ranked by PageRank over the reference graph with top symbols per file. One budgeted blob to orient on a codebase.",
-         "inputSchema": {"type": "object", "properties": {
-            "budget": {"type": "integer", "default": 2000},
-            "detail": {"type": "string", "enum": ["all", "high"], "default": "all"}}}},
         {"name": "explain", "description": "Explain a node: its metadata and up to 20 neighbors with relations and confidence.",
          "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
         {"name": "get_neighbors", "description": "List a node's neighbors, optionally filtered by relation.",
@@ -41,11 +31,7 @@ fn tools() -> Value {
             "node": {"type": "string"}, "relation": {"type": "string"}}, "required": ["node"]}},
         {"name": "shortest_path", "description": "Shortest path between two nodes, with relations per hop.",
          "inputSchema": {"type": "object", "properties": {
-            "source": {"type": "string"}, "target": {"type": "string"},
-            "directed": {"type": "boolean", "default": false,
-                "description": "Follow edges only in their stored direction."},
-            "detail": {"type": "string", "enum": ["all", "high"], "default": "all"}},
-            "required": ["source", "target"]}},
+            "source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"]}},
         {"name": "affected", "description": "Blast radius: everything impacted by changing a node (reverse reachability over calls/imports/uses).",
          "inputSchema": {"type": "object", "properties": {
             "node": {"type": "string"}, "depth": {"type": "integer", "default": 2},
@@ -73,30 +59,6 @@ fn str_arg(args: &Value, key: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn bool_arg(args: &Value, key: &str) -> Option<bool> {
-    args.get(key).and_then(|v| v.as_bool())
-}
-
-/// Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts (strength
-/// >= 0.9); anything else keeps all facts.
-fn min_strength_for(detail: &Option<String>) -> f64 {
-    match detail.as_deref().map(|s| s.to_lowercase()).as_deref() {
-        Some("high") => 0.9,
-        _ => 0.0,
-    }
-}
-
-/// Community id -> hub label, for human/agent-readable output.
-fn community_label_map(db: &Connection) -> std::collections::HashMap<i64, String> {
-    let mut stmt = match db.prepare("SELECT id, label FROM communities") {
-        Ok(s) => s,
-        Err(_) => return Default::default(),
-    };
-    stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default()
-}
-
 fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match name {
         "query_graph" => {
@@ -104,9 +66,6 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let mode = str_arg(args, "mode").unwrap_or_else(|| "bfs".into());
             let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
             let budget = args.get("budget").and_then(|v| v.as_u64()).unwrap_or(2000) as usize;
-            let directed = bool_arg(args, "directed").unwrap_or(false);
-            let detail = str_arg(args, "detail");
-            let cursor = args.get("cursor").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             graphify_query::query_graph(
                 db,
                 db_path,
@@ -114,25 +73,8 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
                 &mode,
                 depth as usize,
                 budget as i64,
-                directed,
-                min_strength_for(&detail),
-                cursor,
             )
-            .map(|(text, n, e, next)| {
-                let mut out = format!("{text}\n\n({n} nodes, {e} edges)");
-                if let Some(next) = next {
-                    out.push_str(&format!(
-                        "\n(continuation: re-run with cursor {next} for the next nodes)"
-                    ));
-                }
-                text_result(out)
-            })
-        }
-        "repo_map" => {
-            let budget = args.get("budget").and_then(|v| v.as_u64()).unwrap_or(2000) as i64;
-            let detail = str_arg(args, "detail");
-            graphify_query::repo_map(db, db_path, budget, min_strength_for(&detail))
-                .map(|(text, files)| text_result(format!("{text}\n\n({files} files shown)")))
+            .map(|(text, n, e)| text_result(format!("{text}\n\n({n} nodes, {e} edges)")))
         }
         "explain" => {
             let node = str_arg(args, "node").unwrap_or_default();
@@ -183,41 +125,18 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
         "shortest_path" => {
             let source = str_arg(args, "source").unwrap_or_default();
             let target = str_arg(args, "target").unwrap_or_default();
-            let directed = bool_arg(args, "directed").unwrap_or(false);
-            let detail = str_arg(args, "detail");
-            graphify_query::find_shortest_path(
-                db,
-                db_path,
-                &source,
-                &target,
-                directed,
-                min_strength_for(&detail),
+            graphify_query::find_shortest_path(db, db_path, &source, &target).map(
+                |(found, hops, text)| {
+                    text_result(format!("{text}\n\n(found: {found}, hops: {hops})"))
+                },
             )
-            .map(|(found, hops, text)| {
-                text_result(format!("{text}\n\n(found: {found}, hops: {hops})"))
-            })
         }
         "affected" => {
             let node = str_arg(args, "node").unwrap_or_default();
             let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
             let relation = str_arg(args, "relation");
             graphify_analyze::affected::affected(db, &node, depth, relation.as_deref()).map(|r| {
-                // Stored paths are absolute; show them relative to the
-                // project root so lines stay short.
-                let root = std::path::Path::new(db_path)
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .map(|p| p.to_string_lossy().replace('\\', "/"));
-                let rel = |path: &str| -> String {
-                    match &root {
-                        Some(r) => graphify_paths::relative_display(path, r),
-                        None => path.to_string(),
-                    }
-                };
-                let mut out = format!(
-                    "Blast radius of {} ({}, {} hits):\n",
-                    r.seed_label, r.seed, r.total
-                );
+                let mut out = format!("Blast radius of {} ({}):\n", r.seed_label, r.total);
                 let mut last_depth = 0;
                 for h in &r.hits {
                     if h.depth != last_depth {
@@ -225,31 +144,19 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
                         out.push_str(&format!("\ndepth {}:\n", h.depth));
                     }
                     out.push_str(&format!(
-                        "  {} [id={}] ({}) via {}\n",
-                        h.label,
-                        h.id,
-                        h.relation,
-                        rel(&h.via_file)
+                        "  {} ({}) via {}\n",
+                        h.label, h.relation, h.via_file
                     ));
                 }
                 text_result(out)
             })
         }
         "god_nodes" => graphify_analyze::analyze(db).map(|a| {
-            let community_labels = community_label_map(db);
             let mut out = String::from("Top hubs:\n");
             for n in &a.god_nodes {
-                // Print the community's hub label, never the raw Option number.
-                let comm = match n.community {
-                    Some(c) => community_labels
-                        .get(&(c as i64))
-                        .cloned()
-                        .unwrap_or_else(|| c.to_string()),
-                    None => "-".to_string(),
-                };
                 out.push_str(&format!(
-                    "  {} (degree {}, community {})\n",
-                    n.label, n.degree, comm
+                    "  {} (degree {}, community {:?})\n",
+                    n.label, n.degree, n.community
                 ));
             }
             text_result(out)
@@ -260,17 +167,7 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let rows: Vec<(i64, String, Option<f64>, i64)> = stmt
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
                 .collect::<std::result::Result<_, _>>()?;
-            let modularity: Option<f64> = db
-                .query_row(
-                    "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
-                    [],
-                    |r| r.get(0),
-                )
-                .ok();
-            let modularity_txt = modularity
-                .map(|q| format!(" (modularity {q:.3})"))
-                .unwrap_or_default();
-            let mut out = format!("{} communities{modularity_txt}:\n", rows.len());
+            let mut out = format!("{} communities:\n", rows.len());
             for (id, label, cohesion, size) in rows {
                 out.push_str(&format!(
                     "  [{id}] {label} - {size} nodes, cohesion {}\n",
@@ -294,18 +191,8 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let files: i64 = db
                 .query_row("SELECT COUNT(*) FROM file_manifest", [], |r| r.get(0))
                 .unwrap_or(0);
-            let modularity: Option<f64> = db
-                .query_row(
-                    "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
-                    [],
-                    |r| r.get(0),
-                )
-                .ok();
-            let modularity_txt = modularity
-                .map(|q| format!(", modularity: {q:.3}"))
-                .unwrap_or_default();
             Ok(text_result(format!(
-                "nodes: {nodes}, edges: {edges}, communities: {communities}, files tracked: {files}{modularity_txt}"
+                "nodes: {nodes}, edges: {edges}, communities: {communities}, files tracked: {files}"
             )))
         }
         other => Ok(error_result(format!("unknown tool: {other}"))),
@@ -328,8 +215,7 @@ fn handle_message(db: &Connection, db_path: &str, msg: &Value) -> Option<Value> 
         "initialize" => json!({
             "protocolVersion": params.get("protocolVersion").and_then(|v| v.as_str()).unwrap_or(PROTOCOL_VERSION),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-            "instructions": "This server exposes a prebuilt knowledge graph of a codebase. Prefer these tools over grepping or browsing files: call repo_map first to orient, query_graph for natural-language questions about architecture or behavior, explain or get_neighbors for a specific symbol, shortest_path to trace how two things connect, and affected before changing a node to see the blast radius. If graph_stats reports 0 nodes, the graph has not been built yet — tell the user to run `nodesify-graphify run <path>`. After code edits, `nodesify-graphify update <path>` refreshes the graph."
+            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}
         }),
         "ping" => json!({}),
         "tools/list" => json!({"tools": tools()}),
@@ -406,22 +292,6 @@ mod tests {
     }
 
     #[test]
-    fn initialize_includes_usage_instructions() {
-        let db = graphify_core::open_db_in_memory().unwrap();
-        let req = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}});
-        let resp = handle_message(&db, ":memory:", &msg(req)).unwrap();
-        let instructions = resp["result"]["instructions"].as_str().unwrap_or("");
-        assert!(
-            instructions.contains("repo_map") && instructions.contains("query_graph"),
-            "instructions should steer agents to the graph tools, got: {instructions}"
-        );
-        assert!(
-            instructions.contains("nodesify-graphify run"),
-            "instructions should tell agents how to build a missing graph, got: {instructions}"
-        );
-    }
-
-    #[test]
     fn notifications_get_no_response() {
         let db = graphify_core::open_db_in_memory().unwrap();
         let req = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
@@ -441,7 +311,6 @@ mod tests {
             .collect();
         for expected in [
             "query_graph",
-            "repo_map",
             "explain",
             "get_neighbors",
             "shortest_path",

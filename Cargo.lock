@@ -497,6 +497,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphify-mcp"
+version = "0.1.0"
+dependencies = [
+ "graphify-analyze",
+ "graphify-core",
+ "graphify-paths",
+ "graphify-query",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "graphify-napi"
 version = "0.1.0"
 dependencies = [
@@ -506,7 +520,9 @@ dependencies = [
  "graphify-core",
  "graphify-detect",
  "graphify-extract",
+ "graphify-mcp",
  "graphify-paths",
+ "graphify-query",
  "graphify-report",
  "graphify-semantic",
  "napi",
@@ -534,6 +550,17 @@ dependencies = [
  "pdf-extract",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "graphify-query"
+version = "0.1.0"
+dependencies = [
+ "graphify-core",
+ "graphify-paths",
+ "petgraph",
+ "rusqlite",
+ "tempfile",
 ]
 
 [[package]]

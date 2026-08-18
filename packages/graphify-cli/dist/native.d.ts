@@ -12,4 +12,5 @@ export declare const mergeGraphs: any;
 export declare const diffGraphs: any;
 export declare const graphHistory: any;
 export declare const affectedNode: any;
+export declare const runMcpServer: any;
 //# sourceMappingURL=native.d.ts.map

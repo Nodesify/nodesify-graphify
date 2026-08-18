@@ -10,6 +10,7 @@ const export_1 = require("./commands/export");
 const query_1 = require("./commands/query");
 const path_1 = require("./commands/path");
 const affected_1 = require("./commands/affected");
+const mcp_1 = require("./commands/mcp");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -109,6 +110,11 @@ program
     .option('--limit <n>', 'Number of entries to show', '20')
     .option('--graph <path>', 'Path to project root', '.')
     .action(history_1.historyCommand);
+program
+    .command('mcp')
+    .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .action(mcp_1.mcpCommand);
 program
     .command('status')
     .description('Check graph health and staleness')
