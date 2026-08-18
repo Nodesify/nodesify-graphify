@@ -87,7 +87,8 @@ pub fn classify_file(path: &Path) -> Option<FileType> {
     // god-node ranking.
     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
         let lower = name.to_lowercase();
-        if lower.ends_with(".min.js") || lower.ends_with(".min.mjs") || lower.ends_with(".min.css") {
+        if lower.ends_with(".min.js") || lower.ends_with(".min.mjs") || lower.ends_with(".min.css")
+        {
             return None;
         }
     }

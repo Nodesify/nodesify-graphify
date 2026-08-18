@@ -1,1 +1,1 @@
-{"version":3,"file":"update.d.ts","sourceRoot":"","sources":["../../src/commands/update.ts"],"names":[],"mappings":"AAGA,wBAAsB,aAAa,CAAC,IAAI,EAAE,MAAM,iBAU/C"}
+{"version":3,"file":"update.d.ts","sourceRoot":"","sources":["../../src/commands/update.ts"],"names":[],"mappings":"AAGA,wBAAsB,aAAa,CAAC,IAAI,EAAE,MAAM,EAAE,IAAI,EAAE;IAAE,KAAK,CAAC,EAAE,OAAO,CAAA;CAAE,iBAU1E"}

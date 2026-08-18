@@ -1,10 +1,10 @@
 import * as pathMod from 'path';
 import { runPipeline } from '../native';
 
-export async function runCommand(path: string) {
+export async function runCommand(path: string, opts: { dedup?: boolean }) {
   try {
     console.log(`Running graphify pipeline on: ${path}`);
-    const result = runPipeline(path);
+    const result = runPipeline(path, opts.dedup === false);
     console.log(`Nodes added: ${result.nodesAdded}`);
     console.log(`Edges added: ${result.edgesAdded}`);
     console.log(`Communities: ${result.communities}`);
