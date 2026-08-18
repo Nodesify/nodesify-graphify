@@ -1114,40 +1114,145 @@ pub fn extract(files: &[PathBuf], db: &Connection) -> Result<Vec<Extraction>, Gr
     Ok(results)
 }
 
-/// Build a lookup of all known node IDs (lowercased for matching) and try to
-/// resolve INFERRED call edges to real node IDs. This turns stub references
-/// into proper cross-file edges when a match is found.
+/// Build indices over the batch and try to resolve INFERRED call edges (and
+/// import edges) to real node IDs. Resolution is precision-ordered:
+///
+/// 1. Same file: a callee defined in the caller's own file always wins.
+/// 2. Import evidence: a callee defined in a file the caller imports wins.
+/// 3. Unique global: if exactly one candidate exists batch-wide, use it.
+/// 4. Ambiguous names are left as stubs rather than guessed.
+///
+/// A name-only match is never upgraded to EXTRACTED: confidence stays as-is
+/// (INFERRED for calls), so downstream consumers can weigh it accordingly.
 fn resolve_cross_file_references(results: &mut [Extraction]) {
-    // Collect all known node IDs and their labels
-    let mut known_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // Bare name of a node: last "::" segment of its ID, lowercased, "()" trimmed.
+    let bare_name = |node: &ExtractedNode| -> String {
+        let last = node.id.rsplit("::").next().unwrap_or(&node.id);
+        last.to_lowercase().trim_end_matches("()").to_string()
+    };
+
+    // File stem of a file node: label minus extension, lowercased
+    // (e.g. "utils.py" -> "utils"), used to tie imports to concrete files.
+    let file_stem_of = |node: &ExtractedNode| -> String {
+        Path::new(&node.label)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase()
+    };
+
+    // Index: bare name -> candidate node IDs (batch-wide, insertion order)
+    let mut by_name: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    // Index: file ID -> (bare name -> node ID) for same-file preference
+    let mut by_file: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+        std::collections::HashMap::new();
+    // Index: file stem -> file node IDs, so imports can resolve to files
+    let mut file_by_stem: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    // Import evidence: file ID -> ordered module targets imported by that file
+    let mut imports_of: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
     for ext in results.iter() {
+        let file_id = ext
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "file")
+            .map(|n| n.id.clone())
+            .unwrap_or_default();
+
         for node in &ext.nodes {
-            // Map: lowercase label -> actual node ID
-            known_ids.insert(node.label.to_lowercase(), node.id.clone());
-            // Also map by the last segment of the ID (e.g. "greet" from "main::Greeter::greet")
-            let parts: Vec<&str> = node.id.split("::").collect();
-            if let Some(last) = parts.last() {
-                let lower = last.to_lowercase().trim_end_matches("()").to_string();
-                known_ids.entry(lower).or_insert_with(|| node.id.clone());
+            if node.node_type == "file" {
+                file_by_stem
+                    .entry(file_stem_of(node))
+                    .or_default()
+                    .push(node.id.clone());
+            } else {
+                by_name.entry(bare_name(node)).or_default().push(node.id.clone());
+                by_file
+                    .entry(file_id.clone())
+                    .or_default()
+                    .entry(bare_name(node))
+                    .or_insert_with(|| node.id.clone());
             }
+        }
+
+        let module_targets: Vec<String> = ext
+            .edges
+            .iter()
+            .filter(|e| e.relation == "imports")
+            .map(|e| e.target.to_lowercase())
+            .collect();
+        if !module_targets.is_empty() {
+            imports_of.insert(file_id, module_targets);
         }
     }
 
-    // Resolve edges
+    // Resolve edges. Name-only matches rewrite the target but never touch
+    // confidence (no INFERRED -> EXTRACTED upgrade).
     for ext in results.iter_mut() {
+        let file_id = ext
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "file")
+            .map(|n| n.id.clone())
+            .unwrap_or_default();
+        let local = by_file.get(&file_id);
+        let imports = imports_of.get(&file_id);
+
         for edge in ext.edges.iter_mut() {
-            if edge.relation == "calls" || edge.relation == "imports" {
-                let target_lower = edge.target.to_lowercase();
-                if let Some(real_id) = known_ids.get(&target_lower) {
-                    if real_id != &edge.target {
-                        edge.target = real_id.clone();
-                        if edge.confidence == "INFERRED" {
-                            edge.confidence = "EXTRACTED".to_string();
-                            edge.confidence_score = Some(0.9);
-                        }
-                    }
+            if edge.relation != "calls" && edge.relation != "imports" {
+                continue;
+            }
+            let target_lower = edge.target.to_lowercase();
+
+            let resolved: Option<String> = if edge.relation == "calls" {
+                // 1. Prefer same-file resolution
+                local
+                    .and_then(|m| m.get(&target_lower))
+                    .cloned()
+                    // 2. Import evidence: resolve within imported files
+                    .or_else(|| {
+                        imports.and_then(|mods| {
+                            mods.iter().find_map(|m| {
+                                file_by_stem
+                                    .get(m)
+                                    .filter(|ids| ids.len() == 1)
+                                    .and_then(|ids| by_file.get(&ids[0]))
+                                    .and_then(|names| names.get(&target_lower))
+                                    .cloned()
+                            })
+                        })
+                    })
+                    // 3. Unique candidate batch-wide
+                    .or_else(|| {
+                        by_name
+                            .get(&target_lower)
+                            .filter(|ids| ids.len() == 1)
+                            .map(|ids| ids[0].clone())
+                    })
+            } else {
+                // Imports: prefer the file node whose stem matches the module
+                file_by_stem
+                    .get(&target_lower)
+                    .filter(|ids| ids.len() == 1)
+                    .map(|ids| ids[0].clone())
+                    // Fall back to a unique same-named node (legacy behavior)
+                    .or_else(|| {
+                        by_name
+                            .get(&target_lower)
+                            .filter(|ids| ids.len() == 1)
+                            .map(|ids| ids[0].clone())
+                    })
+            };
+
+            if let Some(real_id) = resolved {
+                if real_id != edge.target {
+                    edge.target = real_id;
                 }
             }
+            // 4. Ambiguous or unresolved: leave the stub target as-is.
         }
     }
 }
@@ -1342,6 +1447,168 @@ mod tests {
             rationale_edges.len() >= 3,
             "expected >= 3 rationale_for edges, got {}",
             rationale_edges.len()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-file reference resolution (regression: duplicate names)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cross_file_resolution_prefers_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // Both files define helper(); a.py calls its own helper.
+        let a = dir.path().join("a.py");
+        fs::write(
+            &a,
+            "\ndef helper():\n    return 1\n\ndef main():\n    helper()\n",
+        )
+        .unwrap();
+        let b = dir.path().join("b.py");
+        fs::write(&b, "\ndef helper():\n    return 2\n").unwrap();
+
+        let db = open_db_in_memory().unwrap();
+        // Order matters: b first used to hijack a's call under first-match-wins.
+        let results = extract(&[b.clone(), a.clone()], &db).unwrap();
+
+        let ext_a = results.iter().find(|e| e.file_path == a).unwrap();
+        let a_helper = ext_a
+            .nodes
+            .iter()
+            .find(|n| n.label == "helper()")
+            .map(|n| n.id.clone())
+            .unwrap();
+        let call = ext_a
+            .edges
+            .iter()
+            .find(|e| e.relation == "calls" && e.source.ends_with("::main"))
+            .unwrap();
+        assert_eq!(
+            call.target, a_helper,
+            "same-file helper() must not resolve to another file's helper()"
+        );
+        assert_eq!(
+            call.confidence, "INFERRED",
+            "name-only match must not upgrade to EXTRACTED"
+        );
+        assert_eq!(call.confidence_score, Some(0.7));
+    }
+
+    #[test]
+    fn cross_file_resolution_uses_import_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        // main imports utils and calls helper(); other.py also defines helper().
+        let main = dir.path().join("main.py");
+        fs::write(
+            &main,
+            "\nfrom utils import helper\n\ndef run():\n    helper()\n",
+        )
+        .unwrap();
+        let utils = dir.path().join("utils.py");
+        fs::write(&utils, "\ndef helper():\n    return 1\n").unwrap();
+        let other = dir.path().join("other.py");
+        fs::write(&other, "\ndef helper():\n    return 2\n").unwrap();
+
+        let db = open_db_in_memory().unwrap();
+        // other.py first: under first-match-wins it would steal the call edge.
+        let results = extract(&[other, utils.clone(), main.clone()], &db).unwrap();
+
+        let ext_utils = results.iter().find(|e| e.file_path == utils).unwrap();
+        let utils_helper = ext_utils
+            .nodes
+            .iter()
+            .find(|n| n.label == "helper()")
+            .map(|n| n.id.clone())
+            .unwrap();
+
+        let ext_main = results.iter().find(|e| e.file_path == main).unwrap();
+        let call = ext_main
+            .edges
+            .iter()
+            .find(|e| e.relation == "calls")
+            .unwrap();
+        assert_eq!(
+            call.target, utils_helper,
+            "import evidence must pick utils' helper() over other.py's"
+        );
+        assert_eq!(call.confidence, "INFERRED");
+
+        // The import edge itself should point at the utils file node.
+        let utils_file_id = ext_utils
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "file")
+            .map(|n| n.id.clone())
+            .unwrap();
+        let import = ext_main
+            .edges
+            .iter()
+            .find(|e| e.relation == "imports")
+            .unwrap();
+        assert_eq!(import.target, utils_file_id);
+    }
+
+    #[test]
+    fn cross_file_resolution_leaves_ambiguous_names_unresolved() {
+        let dir = tempfile::tempdir().unwrap();
+        // caller does not import either file; both define run().
+        let caller = dir.path().join("caller.py");
+        fs::write(&caller, "\ndef start():\n    run()\n").unwrap();
+        let x = dir.path().join("x.py");
+        fs::write(&x, "\ndef run():\n    pass\n").unwrap();
+        let y = dir.path().join("y.py");
+        fs::write(&y, "\ndef run():\n    pass\n").unwrap();
+
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[caller.clone(), x, y], &db).unwrap();
+
+        let ext = results.iter().find(|e| e.file_path == caller).unwrap();
+        let call = ext
+            .edges
+            .iter()
+            .find(|e| e.relation == "calls")
+            .unwrap();
+        assert_eq!(
+            call.target, "run",
+            "ambiguous bare-name call must stay a stub, not first-match-wins"
+        );
+        assert_eq!(call.confidence, "INFERRED");
+        assert_eq!(call.confidence_score, Some(0.7));
+    }
+
+    #[test]
+    fn cross_file_resolution_resolves_unique_global_name() {
+        let dir = tempfile::tempdir().unwrap();
+        // only_elsewhere exists in exactly one file, no import needed.
+        let caller = dir.path().join("caller.py");
+        fs::write(&caller, "\ndef start():\n    only_elsewhere()\n").unwrap();
+        let provider = dir.path().join("provider.py");
+        fs::write(&provider, "\ndef only_elsewhere():\n    pass\n").unwrap();
+
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[caller.clone(), provider.clone()], &db).unwrap();
+
+        let ext_provider = results.iter().find(|e| e.file_path == provider).unwrap();
+        let provided = ext_provider
+            .nodes
+            .iter()
+            .find(|n| n.label == "only_elsewhere()")
+            .map(|n| n.id.clone())
+            .unwrap();
+
+        let ext = results.iter().find(|e| e.file_path == caller).unwrap();
+        let call = ext
+            .edges
+            .iter()
+            .find(|e| e.relation == "calls")
+            .unwrap();
+        assert_eq!(
+            call.target, provided,
+            "a unique batch-wide name should still resolve cross-file"
+        );
+        assert_eq!(
+            call.confidence, "INFERRED",
+            "cross-file name-only match must stay INFERRED"
         );
     }
 }
