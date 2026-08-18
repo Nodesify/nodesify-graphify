@@ -14,7 +14,7 @@ const CYAN = '\x1b[36m';
 const RESET = '\x1b[0m';
 function ghAvailable() {
     try {
-        (0, child_process_1.execFileSync)('gh', ['--version'], { stdio: 'pipe' });
+        (0, child_process_1.execSync)('gh --version', { stdio: 'pipe' });
         return true;
     }
     catch {
@@ -22,14 +22,15 @@ function ghAvailable() {
     }
 }
 function listOpenPrs(limit) {
-    const out = (0, child_process_1.execFileSync)('gh', ['pr', 'list', '--limit', String(limit), '--json', 'number,title,headRefName,baseRefName,isDraft'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = (0, child_process_1.execSync)(`gh pr list --limit ${limit} --json number,title,headRefName,baseRefName,isDraft`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     return JSON.parse(out);
 }
 function prFiles(number) {
-    if (!Number.isInteger(number) || number <= 0)
-        return [];
     try {
-        const out = (0, child_process_1.execFileSync)('gh', ['pr', 'view', String(number), '--json', 'files'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        const out = (0, child_process_1.execSync)(`gh pr view ${number} --json files`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
         const parsed = JSON.parse(out);
         return (parsed.files || []).map((f) => f.path);
     }
