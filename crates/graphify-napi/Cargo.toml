@@ -16,6 +16,8 @@ graphify-build = { workspace = true }
 graphify-cluster = { workspace = true }
 graphify-analyze = { workspace = true }
 graphify-report = { workspace = true }
+graphify-query = { workspace = true }
+graphify-mcp = { workspace = true }
 graphify-paths = { workspace = true }
 graphify-semantic = { workspace = true }
 rusqlite = { workspace = true }

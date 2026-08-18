@@ -87,6 +87,12 @@ function createProgram(): Command {
     .action(() => {});
 
   program
+    .command('mcp')
+    .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .action(() => {});
+
+  program
     .command('stats')
     .description('Show graph statistics')
     .option('--graph <path>', 'Path to project root', '.')
@@ -143,7 +149,7 @@ for (const cmd of requiredCommands) {
 }
 
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp'];
 for (const cmd of newCommands) {
   assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }
