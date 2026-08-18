@@ -77,6 +77,18 @@ function createProgram() {
         .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
         .action(() => { });
     program
+        .command('tree')
+        .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+        .option('--graph <path>', 'Path to project root', '.')
+        .option('--out <file>', 'Output HTML file', 'tree.html')
+        .option('--max-children <n>', 'Max symbols shown per directory', '40')
+        .action(() => { });
+    program
+        .command('mcp')
+        .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
+        .option('--graph <path>', 'Path to project root', '.')
+        .action(() => { });
+    program
         .command('stats')
         .description('Show graph statistics')
         .option('--graph <path>', 'Path to project root', '.')
@@ -123,7 +135,7 @@ for (const cmd of requiredCommands) {
     assert(commandNames.includes(cmd), `Command "${cmd}" should be registered`);
 }
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree'];
 for (const cmd of newCommands) {
     assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }

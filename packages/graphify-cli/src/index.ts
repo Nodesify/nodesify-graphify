@@ -9,6 +9,7 @@ import { queryCommand } from './commands/query';
 import { pathCommand } from './commands/path';
 import { affectedCommand } from './commands/affected';
 import { mcpCommand } from './commands/mcp';
+import { treeCommand } from './commands/tree';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -128,6 +129,14 @@ program
   .description('Run an MCP stdio server exposing the graph to AI agents (Claude, etc.)')
   .option('--graph <path>', 'Path to project root', '.')
   .action(mcpCommand);
+
+program
+  .command('tree')
+  .description('Export a collapsible filesystem tree of all graph symbols (self-contained HTML)')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--out <file>', 'Output HTML file', 'tree.html')
+  .option('--max-children <n>', 'Max symbols shown per directory', '40')
+  .action(treeCommand);
 
 program
   .command('status')
