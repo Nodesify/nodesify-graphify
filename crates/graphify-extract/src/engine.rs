@@ -1305,8 +1305,7 @@ mod tests {
         .unwrap();
         let db = open_db_in_memory().unwrap();
         let results = extract(&[def, caller], &db).unwrap();
-        let all_edges: Vec<&ExtractedEdge> =
-            results.iter().flat_map(|r| r.edges.iter()).collect();
+        let all_edges: Vec<&ExtractedEdge> = results.iter().flat_map(|r| r.edges.iter()).collect();
         assert!(
             all_edges
                 .iter()

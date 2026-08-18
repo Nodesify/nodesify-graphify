@@ -144,6 +144,11 @@ fn enrich_with_semantics(
 }
 
 pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
+    run_pipeline_with(root, true)
+}
+
+/// Run the pipeline with explicit dedup control (`--no-dedup`).
+pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<PipelineResult> {
     let root = if root.exists() {
         root.canonicalize()
             .map_err(graphify_core::GraphifyError::Io)?
@@ -164,7 +169,7 @@ pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
         |row| row.get(0),
     )?;
 
-    let result = run_pipeline_inner(&root, &db, &graphify_dir);
+    let result = run_pipeline_inner(&root, &db, &graphify_dir, dedup);
 
     // Record pipeline completion
     let (status, files_processed, nodes_added, edges_added) = match &result {
@@ -190,6 +195,7 @@ fn run_pipeline_inner(
     root: &Path,
     db: &Connection,
     graphify_dir: &Path,
+    dedup: bool,
 ) -> graphify_core::Result<PipelineResult> {
     let detected = graphify_detect::detect(root, db)?;
     graphify_detect::update_manifest(&detected, db)?;
@@ -258,6 +264,21 @@ fn run_pipeline_inner(
     let mut extractions = graphify_extract::extract(&files_to_process, db)?;
     enrich_with_semantics(&files_to_process, &mut extractions, db);
     let build_result = graphify_build::build(&extractions, db)?;
+
+    // Entity dedup runs after build, before clustering — duplicate nodes
+    // poison community detection and god-node rankings.
+    let dedup_merged = if dedup {
+        graphify_build::dedup::dedup_nodes(db)?
+    } else {
+        0
+    };
+    if let Err(e) = db.execute(
+        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_dedup_merged', ?1)",
+        rusqlite::params![dedup_merged.to_string()],
+    ) {
+        eprintln!("warning: failed to record dedup count: {}", e);
+    }
+
     let cluster_result = graphify_cluster::cluster(db)?;
     let analysis = graphify_analyze::analyze(db)?;
     let report = graphify_report::generate_report(db, &analysis)?;

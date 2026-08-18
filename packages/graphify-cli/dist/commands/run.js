@@ -37,25 +37,13 @@ exports.runCommand = runCommand;
 const pathMod = __importStar(require("path"));
 const native_1 = require("../native");
 async function runCommand(path, opts) {
-    if (opts.backend)
-        process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
-    if (opts.model)
-        process.env.GRAPHIFY_LLM_MODEL = opts.model;
     try {
         console.log(`Running graphify pipeline on: ${path}`);
-        const result = (0, native_1.runPipeline)(path, opts.dedup === false, opts.embed === true);
+        const result = (0, native_1.runPipeline)(path, opts.dedup === false);
         console.log(`Nodes added: ${result.nodesAdded}`);
         console.log(`Edges added: ${result.edgesAdded}`);
         console.log(`Communities: ${result.communities}`);
         console.log(`Report written to: ${pathMod.join(path, '.graphify', 'graph_report.md')}`);
-        if (opts.wiki) {
-            const outDir = pathMod.join(path, '.graphify', 'wiki');
-            const articles = (0, native_1.exportWiki)(path, outDir, 25);
-            console.log(`Wiki written: ${articles} articles -> ${pathMod.join(outDir, 'index.md')}`);
-        }
-        const benchmark = (0, native_1.tokenBenchmark)(path);
-        if (benchmark)
-            console.log(benchmark);
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

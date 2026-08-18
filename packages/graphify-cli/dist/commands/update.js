@@ -35,28 +35,13 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateCommand = updateCommand;
 const pathMod = __importStar(require("path"));
-const fs_1 = require("fs");
 const native_1 = require("../native");
 async function updateCommand(path, opts) {
-    if (opts.backend)
-        process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
-    if (opts.model)
-        process.env.GRAPHIFY_LLM_MODEL = opts.model;
     try {
         console.log(`Running incremental rebuild on: ${path}`);
-        const result = (0, native_1.updatePipeline)(path, opts.dedup === false, opts.embed === true);
+        const result = (0, native_1.updatePipeline)(path, opts.dedup === false);
         console.log(`Nodes: ${result.nodesAdded}, Edges: ${result.edgesAdded}, Communities: ${result.communities}`);
         console.log(`Report updated at: ${pathMod.join(path, '.graphify', 'graph_report.md')}`);
-        // A wiki created via `run --wiki` or `wiki` would otherwise drift stale
-        // after incremental updates; regenerate it when it exists.
-        const wikiDir = pathMod.join(path, '.graphify', 'wiki');
-        if ((0, fs_1.existsSync)(pathMod.join(wikiDir, 'index.md'))) {
-            const articles = (0, native_1.exportWiki)(path, wikiDir, 25);
-            console.log(`Wiki regenerated: ${articles} articles -> ${pathMod.join(wikiDir, 'index.md')}`);
-        }
-        const benchmark = (0, native_1.tokenBenchmark)(path);
-        if (benchmark)
-            console.log(benchmark);
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

@@ -13,30 +13,26 @@ pub const BANDS: usize = 16;
 const ROWS: usize = NUM_PERMS / BANDS; // 8
 const SEED: u64 = 1;
 
-/// Deterministic (a, b) permutation parameters via SplitMix64, computed
-/// once and shared by every signature call.
-fn perm_params() -> &'static [(u64, u64); NUM_PERMS] {
-    static PARAMS: std::sync::LazyLock<[(u64, u64); NUM_PERMS]> = std::sync::LazyLock::new(|| {
-        let mut state = SEED;
-        let mut next = || {
-            state = state.wrapping_add(0x9E3779B97F4A7C15);
-            let mut z = state;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-            z ^ (z >> 31)
-        };
-        let mut params = [(0u64, 0u64); NUM_PERMS];
-        for p in params.iter_mut() {
-            // a must be non-zero for a valid permutation of the field
-            let mut a = next() % (MERSENNE_PRIME - 1) + 1;
-            if a == 0 {
-                a = 1;
-            }
-            *p = (a, next() % MERSENNE_PRIME);
+/// Deterministic (a, b) permutation parameters via SplitMix64.
+fn perm_params() -> [(u64, u64); NUM_PERMS] {
+    let mut state = SEED;
+    let mut next = || {
+        state = state.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^ (z >> 31)
+    };
+    let mut params = [(0u64, 0u64); NUM_PERMS];
+    for p in params.iter_mut() {
+        // a must be non-zero for a valid permutation of the field
+        let mut a = next() % (MERSENNE_PRIME - 1) + 1;
+        if a == 0 {
+            a = 1;
         }
-        params
-    });
-    &PARAMS
+        *p = (a, next() % MERSENNE_PRIME);
+    }
+    params
 }
 
 /// FNV-1a 64-bit hash of a byte slice.

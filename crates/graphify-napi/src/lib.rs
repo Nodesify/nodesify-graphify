@@ -96,13 +96,13 @@ pub struct AffectedResultJs {
 // ---- napi-exposed functions ----
 
 #[napi]
-pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
+pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
-    let result =
-        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -115,13 +115,13 @@ pub fn run_pipeline(root: String) -> napi::Result<PipelineResultJs> {
 /// Incremental rebuild — intentionally reuses run_pipeline because the pipeline
 /// internally detects changed files via SHA-256 manifest and skips unchanged ones.
 #[napi]
-pub fn update_pipeline(root: String) -> napi::Result<PipelineResultJs> {
+pub fn update_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
-    let result =
-        pipeline::run_pipeline(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,

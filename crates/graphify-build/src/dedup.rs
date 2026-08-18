@@ -100,23 +100,6 @@ fn token_swap_blocked(a: &str, b: &str) -> bool {
     sorted_tokens(a) == sorted_tokens(b) && a != b
 }
 
-/// A strict token subset/superset means one name has an extra qualifier
-/// ("normalize id" vs "normalize") — a different symbol, not a duplicate.
-/// Jaro-Winkler's prefix weighting would otherwise merge qualified names
-/// into their own prefixes.
-fn token_subset_blocked(a: &str, b: &str) -> bool {
-    let (ta, tb) = (sorted_tokens(a), sorted_tokens(b));
-    let (small, large) = if ta.len() <= tb.len() {
-        (&ta, &tb)
-    } else {
-        (&tb, &ta)
-    };
-    !small.is_empty() && small.len() < large.len() && {
-        let large_set: std::collections::HashSet<&&str> = large.iter().collect();
-        small.iter().all(|t| large_set.contains(t))
-    }
-}
-
 /// Short labels only merge on near-identity (same length, ≤1 substitution).
 fn short_label_blocked(a: &str, b: &str) -> bool {
     let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
@@ -243,9 +226,6 @@ pub fn dedup_nodes(db: &Connection) -> Result<usize> {
         if token_swap_blocked(&a.norm, &b.norm) {
             continue;
         }
-        if token_subset_blocked(&a.norm, &b.norm) {
-            continue;
-        }
         if short_label_blocked(&a.norm, &b.norm) {
             continue;
         }
@@ -301,24 +281,22 @@ fn apply_renames(db: &Connection, rename: &HashMap<String, String>) -> Result<()
             .flatten()
             .collect();
         drop(stmt);
-        let mut update = tx.prepare("UPDATE edges SET source = ?1, target = ?2 WHERE id = ?3")?;
-        let mut delete = tx.prepare("DELETE FROM edges WHERE id = ?1")?;
         for (id, source, target) in edges {
             let new_source = rename.get(&source).unwrap_or(&source).clone();
             let new_target = rename.get(&target).unwrap_or(&target).clone();
             if new_source == new_target {
-                delete.execute(rusqlite::params![id])?;
+                tx.execute("DELETE FROM edges WHERE id = ?1", rusqlite::params![id])?;
             } else if new_source != source || new_target != target {
-                update.execute(rusqlite::params![new_source, new_target, id])?;
+                tx.execute(
+                    "UPDATE edges SET source = ?1, target = ?2 WHERE id = ?3",
+                    rusqlite::params![new_source, new_target, id],
+                )?;
             }
         }
     }
     let losers: Vec<&String> = rename.keys().collect();
-    {
-        let mut delete_node = tx.prepare("DELETE FROM nodes WHERE id = ?1")?;
-        for loser in losers {
-            delete_node.execute(rusqlite::params![loser])?;
-        }
+    for loser in losers {
+        tx.execute("DELETE FROM nodes WHERE id = ?1", rusqlite::params![loser])?;
     }
     tx.commit()?;
     Ok(())
@@ -401,14 +379,6 @@ mod tests {
         insert(&db, "b", "Handler Error Service", "code", "b.rs", Some(1));
         let removed = dedup_nodes(&db).unwrap();
         assert_eq!(removed, 0);
-    }
-
-    #[test]
-    fn qualified_names_not_merged_into_prefix() {
-        let db = open_db_in_memory().unwrap();
-        insert(&db, "a", "normalize_id", "code", "a.rs", Some(1));
-        insert(&db, "b", "normalize", "code", "b.rs", Some(1));
-        assert_eq!(dedup_nodes(&db).unwrap(), 0);
     }
 
     #[test]
