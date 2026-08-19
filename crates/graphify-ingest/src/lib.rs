@@ -75,13 +75,7 @@ pub fn ingest_url(url: &str, out_dir: &Path, opts: &IngestOptions) -> Result<Pat
                 let text = String::from_utf8_lossy(&bytes).to_string();
                 save_markdown(
                     out_dir,
-                    annotated_markdown(
-                        url,
-                        "text",
-                        &text,
-                        &derive_title(&text),
-                        opts,
-                    ),
+                    annotated_markdown(url, "text", &text, &derive_title(&text), opts),
                 )
             }
         }
@@ -233,8 +227,14 @@ fn unique_write(out_dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf> {
     let mut path = out_dir.join(name);
     let mut counter = 1;
     while path.exists() {
-        let stem = Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("doc");
-        let ext = Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("md");
+        let stem = Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("doc");
+        let ext = Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("md");
         path = out_dir.join(format!("{stem}_{counter}.{ext}"));
         counter += 1;
     }
@@ -259,10 +259,20 @@ fn derive_doc_name(content: &str) -> String {
     let raw = heading.or(source).unwrap_or_else(|| "document".into());
     let slug: String = raw
         .chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     let slug = slug.trim_matches('_').to_string();
-    let mut name = if slug.is_empty() { "document".to_string() } else { slug };
+    let mut name = if slug.is_empty() {
+        "document".to_string()
+    } else {
+        slug
+    };
     name.truncate(80);
     format!("{name}.md")
 }
@@ -341,7 +351,11 @@ fn extract_tag(html: &str, tag: &str) -> Option<String> {
     let content_start = after_open.find('>')? + 1;
     let close = format!("</{tag}>");
     let end = after_open.find(&close)?;
-    Some(strip_tags(&after_open[content_start..end]).trim().to_string())
+    Some(
+        strip_tags(&after_open[content_start..end])
+            .trim()
+            .to_string(),
+    )
 }
 
 fn strip_tags(html: &str) -> String {
@@ -368,7 +382,11 @@ fn decode_entities(s: &str) -> String {
 }
 
 fn looks_like_html(bytes: &[u8]) -> bool {
-    let head = if bytes.len() > 512 { &bytes[..512] } else { bytes };
+    let head = if bytes.len() > 512 {
+        &bytes[..512]
+    } else {
+        bytes
+    };
     let s = String::from_utf8_lossy(head).to_lowercase();
     s.contains("<html") || s.contains("<!doctype html") || s.contains("<head")
 }
@@ -452,12 +470,27 @@ mod tests {
 
     #[test]
     fn classifies_urls() {
-        assert_eq!(classify_url("https://x.com/karpathy/status/123"), UrlKind::Tweet);
-        assert_eq!(classify_url("https://twitter.com/a/status/1"), UrlKind::Tweet);
-        assert_eq!(classify_url("https://arxiv.org/abs/1706.03762"), UrlKind::ArxivAbstract);
-        assert_eq!(classify_url("https://arxiv.org/pdf/1706.03762"), UrlKind::ArxivPdf);
+        assert_eq!(
+            classify_url("https://x.com/karpathy/status/123"),
+            UrlKind::Tweet
+        );
+        assert_eq!(
+            classify_url("https://twitter.com/a/status/1"),
+            UrlKind::Tweet
+        );
+        assert_eq!(
+            classify_url("https://arxiv.org/abs/1706.03762"),
+            UrlKind::ArxivAbstract
+        );
+        assert_eq!(
+            classify_url("https://arxiv.org/pdf/1706.03762"),
+            UrlKind::ArxivPdf
+        );
         assert_eq!(classify_url("https://example.com/paper.pdf"), UrlKind::Pdf);
-        assert_eq!(classify_url("https://example.com/diagram.PNG"), UrlKind::Image);
+        assert_eq!(
+            classify_url("https://example.com/diagram.PNG"),
+            UrlKind::Image
+        );
         assert_eq!(classify_url("https://example.com/page"), UrlKind::Webpage);
     }
 
@@ -514,14 +547,23 @@ mod tests {
 
     #[test]
     fn doc_names_derived_from_heading() {
-        let md = annotated_markdown("https://x.com/a/status/1", "tweet", "# Hello World\n\ntext", "t", &IngestOptions::default());
+        let md = annotated_markdown(
+            "https://x.com/a/status/1",
+            "tweet",
+            "# Hello World\n\ntext",
+            "t",
+            &IngestOptions::default(),
+        );
         assert_eq!(derive_doc_name(&md), "hello_world.md");
     }
 
     #[test]
     fn meta_extraction() {
         let html = r#"<meta name="citation_title" content="Attention Is All &amp; You Need">"#;
-        assert_eq!(extract_meta(html, "citation_title").unwrap(), "Attention Is All & You Need");
+        assert_eq!(
+            extract_meta(html, "citation_title").unwrap(),
+            "Attention Is All & You Need"
+        );
         let html2 = "<title>My Page</title><body>x</body>";
         assert_eq!(extract_tag(html2, "title").unwrap(), "My Page");
     }

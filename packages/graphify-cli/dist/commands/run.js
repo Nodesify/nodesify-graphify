@@ -37,6 +37,10 @@ exports.runCommand = runCommand;
 const pathMod = __importStar(require("path"));
 const native_1 = require("../native");
 async function runCommand(path, opts) {
+    if (opts.backend)
+        process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
+    if (opts.model)
+        process.env.GRAPHIFY_LLM_MODEL = opts.model;
     try {
         console.log(`Running graphify pipeline on: ${path}`);
         const result = (0, native_1.runPipeline)(path, opts.dedup === false);

@@ -330,7 +330,10 @@ pub fn ingest_url(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
 
-    let opts = graphify_ingest::IngestOptions { author, contributor };
+    let opts = graphify_ingest::IngestOptions {
+        author,
+        contributor,
+    };
     let raw_dir = root_pb.join("raw");
     let saved = graphify_ingest::ingest_url(&url, &raw_dir, &opts)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;

@@ -34,12 +34,16 @@ function createProgram() {
         .description('Run the full pipeline on a directory')
         .argument('<path>', 'Directory to analyze')
         .option('--no-dedup', 'Skip near-duplicate node merging')
+        .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+        .option('--model <name>', 'Semantic LLM model name (backend-specific)')
         .action(() => { });
     program
         .command('update')
         .description('Run incremental AST-only rebuild')
         .argument('<path>', 'Directory to update')
         .option('--no-dedup', 'Skip near-duplicate node merging')
+        .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+        .option('--model <name>', 'Semantic LLM model name (backend-specific)')
         .action(() => { });
     program
         .command('watch')

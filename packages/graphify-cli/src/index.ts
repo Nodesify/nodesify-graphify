@@ -34,6 +34,10 @@ program
   .description('Run the full pipeline on a directory')
   .argument('<path>', 'Directory to analyze')
   .option('--no-dedup', 'Skip near-duplicate node merging')
+  .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+  .option('--model <name>', 'Semantic LLM model name (backend-specific)')
+  .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+  .option('--model <name>', 'Semantic LLM model name (backend-specific)')
   .action(runCommand);
 
 program
