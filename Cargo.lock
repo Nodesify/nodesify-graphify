@@ -567,6 +567,7 @@ dependencies = [
  "graphify-core",
  "serde",
  "serde_json",
+ "tempfile",
  "ureq",
 ]
 
@@ -594,6 +595,7 @@ dependencies = [
  "graphify-core",
  "graphify-detect",
  "graphify-extract",
+ "graphify-ingest",
  "graphify-mcp",
  "graphify-paths",
  "graphify-query",
@@ -651,6 +653,7 @@ dependencies = [
 name = "graphify-semantic"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "graphify-core",
  "serde",
  "serde_json",

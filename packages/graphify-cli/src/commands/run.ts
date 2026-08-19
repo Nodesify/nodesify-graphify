@@ -1,7 +1,9 @@
 import * as pathMod from 'path';
 import { runPipeline } from '../native';
 
-export async function runCommand(path: string, opts: { dedup?: boolean }) {
+export async function runCommand(path: string, opts: { dedup?: boolean; backend?: string; model?: string }) {
+  if (opts.backend) process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
+  if (opts.model) process.env.GRAPHIFY_LLM_MODEL = opts.model;
   try {
     console.log(`Running graphify pipeline on: ${path}`);
     const result = runPipeline(path, opts.dedup === false);

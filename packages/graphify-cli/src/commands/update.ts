@@ -1,7 +1,9 @@
 import * as pathMod from 'path';
 import { updatePipeline } from '../native';
 
-export async function updateCommand(path: string, opts: { dedup?: boolean }) {
+export async function updateCommand(path: string, opts: { dedup?: boolean; backend?: string; model?: string }) {
+  if (opts.backend) process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
+  if (opts.model) process.env.GRAPHIFY_LLM_MODEL = opts.model;
   try {
     console.log(`Running incremental rebuild on: ${path}`);
     const result = updatePipeline(path, opts.dedup === false);

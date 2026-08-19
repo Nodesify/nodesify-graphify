@@ -13,6 +13,7 @@ const affected_1 = require("./commands/affected");
 const mcp_1 = require("./commands/mcp");
 const tree_1 = require("./commands/tree");
 const prs_1 = require("./commands/prs");
+const add_1 = require("./commands/add");
 const update_1 = require("./commands/update");
 const watch_1 = require("./commands/watch");
 const cluster_1 = require("./commands/cluster");
@@ -33,6 +34,10 @@ program
     .description('Run the full pipeline on a directory')
     .argument('<path>', 'Directory to analyze')
     .option('--no-dedup', 'Skip near-duplicate node merging')
+    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
+    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
     .action(run_1.runCommand);
 program
     .command('update')
@@ -131,6 +136,14 @@ program
     .option('--graph <path>', 'Path to project root', '.')
     .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
     .action(prs_1.prsCommand);
+program
+    .command('add')
+    .description('Fetch a URL (arXiv paper, tweet, webpage, image, PDF) into ./raw and update the graph')
+    .argument('<url>', 'URL to fetch')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--author <name>', 'Author recorded in the saved metadata')
+    .option('--contributor <name>', 'Contributor recorded in the saved metadata')
+    .action(add_1.addCommand);
 program
     .command('status')
     .description('Check graph health and staleness')
