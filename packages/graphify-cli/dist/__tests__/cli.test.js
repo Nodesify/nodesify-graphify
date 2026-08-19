@@ -7,6 +7,9 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 const commander_1 = require("commander");
+const child_process_1 = require("child_process");
+const fs_1 = require("fs");
+const path_1 = require("path");
 let passed = 0;
 let failed = 0;
 function assert(condition, message) {
@@ -213,6 +216,21 @@ catch (e) {
 }
 // Test 9: Total command count
 assert(commandNames.length >= requiredCommands.length + newCommands.length, `Should have at least ${requiredCommands.length + newCommands.length} commands, got ${commandNames.length}`);
+// Test 10: the real entrypoint loads (catches duplicate-flag registration
+// that the mirrored program above cannot see)
+const entry = (0, path_1.join)(__dirname, '..', '..', 'dist', 'index.js');
+if ((0, fs_1.existsSync)(entry)) {
+    try {
+        (0, child_process_1.execSync)(`node "${entry}" --help`, { stdio: 'pipe', encoding: 'utf-8' });
+        assert(true, 'real entrypoint (dist/index.js) loads');
+    }
+    catch (e) {
+        assert(false, `real entrypoint should load: ${String(e.message).slice(0, 140)}`);
+    }
+}
+else {
+    console.log('(dist not built - skipping entrypoint load check)');
+}
 // Summary
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {
