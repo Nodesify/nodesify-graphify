@@ -78,13 +78,16 @@ fn save_semantic_cache(
 }
 
 /// Enrich existing extractions with LLM-based semantic data.
-/// No-op if GRAPHIFY_LLM_API_KEY is not set.
+/// No-op if no semantic backend is configured (GRAPHIFY_LLM_API_KEY /
+/// OPENAI_API_KEY / GEMINI_API_KEY, or an explicit GRAPHIFY_LLM_BACKEND).
+/// Image files (no AST extraction) get their own synthetic extraction via
+/// the backend's vision path.
 fn enrich_with_semantics(
     files: &[PathBuf],
-    extractions: &mut [graphify_extract::Extraction],
+    extractions: &mut Vec<graphify_extract::Extraction>,
     db: &Connection,
 ) {
-    let backend = match graphify_semantic::ClaudeBackend::from_env() {
+    let backend = match graphify_semantic::backend_from_env() {
         Ok(b) => b,
         Err(_) => return,
     };
@@ -95,11 +98,27 @@ fn enrich_with_semantics(
     }
 
     for file_path in files {
-        let Some(&idx) = file_to_idx.get(file_path) else {
-            continue;
-        };
         let hash = match file_hash(file_path) {
             Some(h) => h,
+            None => continue,
+        };
+
+        // Text extraction paths require an existing extraction (images have
+        // none); the vision path inside extract_semantic_for_files handles
+        // both kinds, so a synthetic extraction carries image results.
+        let idx = match file_to_idx.get(file_path) {
+            Some(&idx) => idx,
+            None if graphify_semantic::is_image_file(file_path) => {
+                extractions.push(graphify_extract::Extraction {
+                    file_path: file_path.clone(),
+                    language: "image".to_string(),
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                });
+                let idx = extractions.len() - 1;
+                file_to_idx.insert(file_path.clone(), idx);
+                idx
+            }
             None => continue,
         };
 
@@ -108,7 +127,7 @@ fn enrich_with_semantics(
             None => {
                 let results = graphify_semantic::extract_semantic_for_files(
                     std::slice::from_ref(file_path),
-                    &backend,
+                    backend.as_ref(),
                 );
                 let Some((_, extraction)) = results.into_iter().next() else {
                     continue;

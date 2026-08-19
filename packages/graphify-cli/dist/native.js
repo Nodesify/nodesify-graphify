@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.exportTree = exports.runMcpServer = exports.affectedNode = exports.graphHistory = exports.diffGraphs = exports.mergeGraphs = exports.clusterOnly = exports.findPath = exports.queryGraph = exports.exportGraphmlCmd = exports.exportHtmlCmd = exports.exportJsonCmd = exports.explainNode = exports.graphStats = exports.updatePipeline = exports.runPipeline = void 0;
+exports.ingestUrl = exports.exportTree = exports.runMcpServer = exports.affectedNode = exports.graphHistory = exports.diffGraphs = exports.mergeGraphs = exports.clusterOnly = exports.findPath = exports.queryGraph = exports.exportGraphmlCmd = exports.exportHtmlCmd = exports.exportJsonCmd = exports.explainNode = exports.graphStats = exports.updatePipeline = exports.runPipeline = void 0;
 const path_1 = require("path");
 const fs_1 = require("fs");
 const PLATFORM_SUFFIX = {
@@ -61,4 +61,5 @@ exports.graphHistory = binding.graphHistory;
 exports.affectedNode = binding.affectedNode;
 exports.runMcpServer = binding.runMcpServer;
 exports.exportTree = binding.exportTree;
+exports.ingestUrl = binding.ingestUrl;
 //# sourceMappingURL=native.js.map

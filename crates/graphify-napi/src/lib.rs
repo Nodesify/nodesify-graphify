@@ -306,6 +306,49 @@ pub fn export_tree(root: String, out: String, max_children: Option<i32>) -> napi
     Ok(count as i32)
 }
 
+#[napi(object)]
+pub struct IngestResultJs {
+    pub saved_path: String,
+    pub graph_updated: bool,
+}
+
+#[napi]
+pub fn ingest_url(
+    root: String,
+    url: String,
+    author: Option<String>,
+    contributor: Option<String>,
+) -> napi::Result<IngestResultJs> {
+    let root_pb = PathBuf::from(&root);
+    if !root_pb.exists() {
+        return Err(napi::Error::from_reason(format!(
+            "path does not exist: {}",
+            root_pb.display()
+        )));
+    }
+    let db_path_str = graphify_paths::normalize(
+        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    );
+
+    let opts = graphify_ingest::IngestOptions {
+        author,
+        contributor,
+    };
+    let raw_dir = root_pb.join("raw");
+    let saved = graphify_ingest::ingest_url(&url, &raw_dir, &opts)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    // Incremental update picks the new file up (hash manifest sees it as new)
+    pipeline::run_pipeline_with(&root_pb, true)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    query::invalidate_graph_cache(&db_path_str);
+
+    Ok(IngestResultJs {
+        saved_path: graphify_paths::normalize(&saved),
+        graph_updated: true,
+    })
+}
+
 #[napi]
 pub fn run_mcp_server(root: String) -> napi::Result<()> {
     let root_pb = PathBuf::from(&root);

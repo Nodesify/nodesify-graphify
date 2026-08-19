@@ -18,6 +18,7 @@ graphify-analyze = { workspace = true }
 graphify-report = { workspace = true }
 graphify-query = { workspace = true }
 graphify-mcp = { workspace = true }
+graphify-ingest = { workspace = true }
 graphify-paths = { workspace = true }
 graphify-semantic = { workspace = true }
 rusqlite = { workspace = true }
