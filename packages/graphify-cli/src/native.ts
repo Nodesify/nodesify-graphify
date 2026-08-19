@@ -65,3 +65,4 @@ export const graphHistory = binding.graphHistory;
 export const affectedNode = binding.affectedNode;
 export const runMcpServer = binding.runMcpServer;
 export const exportTree = binding.exportTree;
+export const ingestUrl = binding.ingestUrl;

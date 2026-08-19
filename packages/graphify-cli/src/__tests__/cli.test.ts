@@ -87,6 +87,15 @@ function createProgram(): Command {
     .action(() => {});
 
   program
+    .command('add')
+    .description('Fetch a URL (arXiv paper, tweet, webpage, image, PDF) into ./raw and update the graph')
+    .argument('<url>', 'URL to fetch')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--author <name>', 'Author recorded in the saved metadata')
+    .option('--contributor <name>', 'Contributor recorded in the saved metadata')
+    .action(() => {});
+
+  program
     .command('prs')
     .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')
     .argument('[count]', 'Number of PRs to analyze', '20')
@@ -165,7 +174,7 @@ for (const cmd of requiredCommands) {
 }
 
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs', 'add'];
 for (const cmd of newCommands) {
   assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }

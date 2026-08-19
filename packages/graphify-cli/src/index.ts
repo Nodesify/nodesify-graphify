@@ -11,6 +11,7 @@ import { affectedCommand } from './commands/affected';
 import { mcpCommand } from './commands/mcp';
 import { treeCommand } from './commands/tree';
 import { prsCommand } from './commands/prs';
+import { addCommand } from './commands/add';
 import { updateCommand } from './commands/update';
 import { watchCommand } from './commands/watch';
 import { clusterCommand } from './commands/cluster';
@@ -146,6 +147,15 @@ program
   .option('--graph <path>', 'Path to project root', '.')
   .option('--conflicts', 'Flag PRs sharing communities (merge-order risk)')
   .action(prsCommand);
+
+program
+  .command('add')
+  .description('Fetch a URL (arXiv paper, tweet, webpage, image, PDF) into ./raw and update the graph')
+  .argument('<url>', 'URL to fetch')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--author <name>', 'Author recorded in the saved metadata')
+  .option('--contributor <name>', 'Contributor recorded in the saved metadata')
+  .action(addCommand);
 
 program
   .command('status')
