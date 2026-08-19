@@ -36,14 +36,14 @@ program
     .option('--no-dedup', 'Skip near-duplicate node merging')
     .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
     .option('--model <name>', 'Semantic LLM model name (backend-specific)')
-    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
-    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
     .action(run_1.runCommand);
 program
     .command('update')
     .description('Run incremental AST-only rebuild')
     .argument('<path>', 'Directory to update')
     .option('--no-dedup', 'Skip near-duplicate node merging')
+    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
     .action(update_1.updateCommand);
 program
     .command('watch')

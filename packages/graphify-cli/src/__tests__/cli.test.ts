@@ -6,6 +6,9 @@
  */
 
 import { Command } from 'commander';
+import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 let passed = 0;
 let failed = 0;
@@ -242,6 +245,20 @@ assert(
   commandNames.length >= requiredCommands.length + newCommands.length,
   `Should have at least ${requiredCommands.length + newCommands.length} commands, got ${commandNames.length}`
 );
+
+// Test 10: the real entrypoint loads (catches duplicate-flag registration
+// that the mirrored program above cannot see)
+const entry = join(__dirname, '..', '..', 'dist', 'index.js');
+if (existsSync(entry)) {
+  try {
+    execSync(`node "${entry}" --help`, { stdio: 'pipe', encoding: 'utf-8' });
+    assert(true, 'real entrypoint (dist/index.js) loads');
+  } catch (e: any) {
+    assert(false, `real entrypoint should load: ${String(e.message).slice(0, 140)}`);
+  }
+} else {
+  console.log('(dist not built - skipping entrypoint load check)');
+}
 
 // Summary
 console.log(`\n${passed} passed, ${failed} failed`);
