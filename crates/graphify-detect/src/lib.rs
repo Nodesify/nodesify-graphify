@@ -162,6 +162,12 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
         if rel_str.starts_with(".graphify/") {
             continue;
         }
+        // Never ingest secrets or unknown hidden directories — content can
+        // end up in exports and LLM API requests. Excluded files fall out
+        // of seen_paths, so previously ingested ones are cleaned up.
+        if graphify_core::security::is_sensitive_path(&rel_str) {
+            continue;
+        }
         let Some(file_type) = classify_file(path) else {
             continue;
         };

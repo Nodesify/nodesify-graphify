@@ -18,12 +18,15 @@ pub struct ClusterResult {
     /// highest-degree member.
     pub labels: HashMap<u32, String>,
     pub iterations: u32,
+    /// Newman modularity of the final partition in [-1, 1].
+    pub modularity: f64,
 }
 
 pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
-    // Load nodes (id + label for hub naming)
+    // Load nodes (id + label for hub naming). Ordered by id so label
+    // propagation is deterministic across runs and platforms.
     let node_ids: Vec<String> = {
-        let mut stmt = db.prepare("SELECT id FROM nodes")?;
+        let mut stmt = db.prepare("SELECT id FROM nodes ORDER BY id")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         rows.filter_map(|r| r.ok()).collect()
     };
@@ -40,6 +43,7 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
             communities: HashMap::new(),
             labels: HashMap::new(),
             iterations: 0,
+            modularity: 0.0,
         });
     }
 
@@ -196,6 +200,27 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
         );
     }
 
+    // Newman modularity: Q = Σ_c [ internal_c/m − (degree_sum_c / 2m)² ]
+    let m = graph.edge_count();
+    let modularity = if m == 0 {
+        0.0
+    } else {
+        let mut degree_sum: HashMap<u32, usize> = HashMap::new();
+        for (i, _) in node_ids.iter().enumerate() {
+            let degree = graph.neighbors(NodeIndex::new(i)).count();
+            *degree_sum.entry(labels[i]).or_insert(0) += degree;
+        }
+        let two_m = 2.0 * m as f64;
+        communities
+            .keys()
+            .map(|&c| {
+                let internal = internal_edges.get(&c).copied().unwrap_or(0) as f64;
+                let k_c = degree_sum.get(&c).copied().unwrap_or(0) as f64;
+                internal / m as f64 - (k_c / two_m).powi(2)
+            })
+            .sum()
+    };
+
     db.execute("DELETE FROM communities", [])?;
     {
         let mut stmt = db.prepare(
@@ -214,15 +239,25 @@ pub fn cluster(db: &Connection) -> graphify_core::Result<ClusterResult> {
             ])?;
         }
     }
+    db.execute(
+        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_modularity', ?1)",
+        rusqlite::params![format!("{modularity:.6}")],
+    )?;
 
     Ok(ClusterResult {
         communities,
         labels: hub_labels,
         iterations,
+        modularity,
     })
 }
 
 /// One full label-propagation pass loop. Returns iterations used.
+///
+/// Tie-breaking is deterministic: among labels with the maximum neighbor
+/// count, the smallest label id wins. Rust's HashMap iteration order is
+/// randomized per process, so `max_by_key` alone would make communities
+/// (and every downstream report) differ between runs.
 fn propagate(graph: &UnGraph<String, ()>, labels: &mut [u32]) -> u32 {
     let n = labels.len();
     let mut iterations = 0;
@@ -236,11 +271,17 @@ fn propagate(graph: &UnGraph<String, ()>, labels: &mut [u32]) -> u32 {
             for neighbor in graph.neighbors(node_idx) {
                 *neighbor_labels.entry(labels[neighbor.index()]).or_insert(0) += 1;
             }
-            let best_label = *neighbor_labels
-                .iter()
-                .max_by_key(|(_, &count)| count)
-                .map(|(label, _)| label)
-                .unwrap();
+            let best_label = {
+                let max_count = neighbor_labels.values().copied().max().unwrap_or(0);
+                // Smallest label id among the maxima: fully deterministic
+                // (HashMap iteration order must not decide communities).
+                neighbor_labels
+                    .iter()
+                    .filter(|(_, &count)| count == max_count)
+                    .map(|(&label, _)| label)
+                    .min()
+                    .unwrap_or(labels[i])
+            };
             if best_label != labels[i] {
                 labels[i] = best_label;
                 changed = true;
@@ -391,6 +432,95 @@ mod tests {
         assert!(
             max_size < result.communities.values().sum::<usize>(),
             "oversized community should have been split"
+        );
+    }
+
+    #[test]
+    fn clustering_is_deterministic_across_runs() {
+        // Two identically-seeded databases must produce identical
+        // assignments — label propagation must not depend on HashMap
+        // iteration order.
+        let assignments = |seed: &dyn Fn(&Connection)| {
+            let db = open_db_in_memory().unwrap();
+            seed(&db);
+            cluster(&db).unwrap();
+            let mut rows: Vec<(String, i64)> = db
+                .prepare("SELECT id, community FROM nodes ORDER BY id")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
+            rows.sort();
+            rows
+        };
+        let seed = |db: &Connection| {
+            // Chain + star + isolated node: plenty of label-count ties
+            db.execute_batch(
+                "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                    ('a','A','code','f.py'),('b','B','code','f.py'),('c','C','code','f.py'),
+                    ('d','D','code','f.py'),('e','E','code','f.py'),('f','F','code','f.py'),
+                    ('g','G','code','f.py'),('h','H','code','f.py');
+                 INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                    ('a','b','calls','EXTRACTED','f.py'),('b','c','calls','EXTRACTED','f.py'),
+                    ('a','c','calls','EXTRACTED','f.py'),('d','e','calls','EXTRACTED','f.py'),
+                    ('e','f','calls','EXTRACTED','f.py'),('d','f','calls','EXTRACTED','f.py'),
+                    ('c','d','calls','EXTRACTED','f.py');",
+            )
+            .unwrap();
+        };
+        let first = assignments(&seed);
+        let second = assignments(&seed);
+        assert_eq!(first, second, "same input must give same communities");
+    }
+
+    #[test]
+    fn modularity_recorded_and_bounded() {
+        let db = open_db_in_memory().unwrap();
+        seed_graph(&db);
+        let result = cluster(&db).unwrap();
+        assert!(
+            result.modularity >= -1.0 && result.modularity <= 1.0,
+            "modularity must be in [-1, 1], got {}",
+            result.modularity
+        );
+        let stored: String = db
+            .query_row(
+                "SELECT value FROM _meta WHERE key = 'last_modularity'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!stored.is_empty());
+    }
+
+    #[test]
+    fn two_disconnected_cliques_have_high_modularity() {
+        let db = open_db_in_memory().unwrap();
+        // Two K4 cliques, no cross edges → near-perfect partition
+        let mut sql = String::new();
+        for i in 0..8 {
+            sql.push_str(&format!(
+                "INSERT INTO nodes (id, label, file_type, source_file) VALUES ('n{i}', 'N{i}', 'code', 'f.py');\n"
+            ));
+        }
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                sql.push_str(&format!(
+                    "INSERT INTO edges (source, target, relation, confidence, source_file) VALUES ('n{i}', 'n{j}', 'calls', 'EXTRACTED', 'f.py');\n"
+                ));
+                sql.push_str(&format!(
+                    "INSERT INTO edges (source, target, relation, confidence, source_file) VALUES ('n{}', 'n{}', 'calls', 'EXTRACTED', 'f.py');\n",
+                    i + 4, j + 4
+                ));
+            }
+        }
+        db.execute_batch(&sql).unwrap();
+        let result = cluster(&db).unwrap();
+        assert!(
+            result.modularity >= 0.5,
+            "two disconnected cliques should score high modularity, got {}",
+            result.modularity
         );
     }
 }

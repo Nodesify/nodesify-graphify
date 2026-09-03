@@ -4,7 +4,7 @@ exports.pathCommand = pathCommand;
 const native_1 = require("../native");
 async function pathCommand(source, target, opts) {
     try {
-        const result = (0, native_1.findPath)(opts.graph, source, target, opts.directed ?? false, opts.detail);
+        const result = (0, native_1.findPath)(opts.graph, source, target, opts.directed ?? false);
         if (!result.found) {
             console.log(result.text);
             return;

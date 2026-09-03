@@ -7,7 +7,7 @@ async function queryCommand(question, opts) {
         const mode = opts.dfs ? 'dfs' : 'bfs';
         const depth = parseInt(opts.depth || '2', 10);
         const budget = parseInt(opts.budget || '2000', 10);
-        const result = (0, native_1.queryGraph)(opts.graph, question, mode, depth, budget);
+        const result = (0, native_1.queryGraph)(opts.graph, question, mode, depth, budget, opts.directed ?? false);
         console.log(result.text);
     }
     catch (e) {

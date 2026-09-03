@@ -194,6 +194,7 @@ pub fn query_graph(
     mode: String,
     depth: i64,
     budget: i64,
+    directed: Option<bool>,
 ) -> napi::Result<QueryResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
@@ -201,9 +202,16 @@ pub fn query_graph(
     );
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let (text, node_count, edge_count) =
-        query::query_graph(&db, &db_path_str, &question, &mode, depth as usize, budget)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let (text, node_count, edge_count) = query::query_graph(
+        &db,
+        &db_path_str,
+        &question,
+        &mode,
+        depth as usize,
+        budget,
+        directed.unwrap_or(false),
+    )
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(QueryResultJs {
         text,
         node_count: node_count as i64,
@@ -212,15 +220,26 @@ pub fn query_graph(
 }
 
 #[napi]
-pub fn find_path(root: String, source: String, target: String) -> napi::Result<PathResultJs> {
+pub fn find_path(
+    root: String,
+    source: String,
+    target: String,
+    directed: Option<bool>,
+) -> napi::Result<PathResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(
         &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
     );
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let (found, hops, text) = query::find_shortest_path(&db, &db_path_str, &source, &target)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let (found, hops, text) = query::find_shortest_path(
+        &db,
+        &db_path_str,
+        &source,
+        &target,
+        directed.unwrap_or(false),
+    )
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(PathResultJs {
         found,
         hops: hops as i64,
@@ -480,7 +499,7 @@ mod tests {
         let db = open_db_in_memory().unwrap();
         let key = format!(":memory:empty_{}", std::process::id());
         let (text, nodes, edges) =
-            query::query_graph(&db, &key, "anything", "bfs", 3, 2000).unwrap();
+            query::query_graph(&db, &key, "anything", "bfs", 3, 2000, false).unwrap();
         assert_eq!(text, "No nodes in graph.");
         assert_eq!(nodes, 0);
         assert_eq!(edges, 0);
@@ -492,7 +511,7 @@ mod tests {
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatch_{}", std::process::id());
         let (text, nodes, _) =
-            query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000).unwrap();
+            query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000, false).unwrap();
         assert_eq!(text, "No matching nodes found.");
         assert_eq!(nodes, 0);
     }
@@ -510,7 +529,8 @@ mod tests {
             &[("n1", "n2", "calls"), ("n2", "n3", "imports")],
         );
         let key = format!(":memory:bfs_{}", std::process::id());
-        let (text, nodes, _edges) = query::query_graph(&db, &key, "Alpha", "bfs", 2, 2000).unwrap();
+        let (text, nodes, _edges) =
+            query::query_graph(&db, &key, "Alpha", "bfs", 2, 2000, false).unwrap();
         assert!(nodes > 0);
         assert!(text.contains("Alpha"));
     }
@@ -524,7 +544,8 @@ mod tests {
             &[("n1", "n2", "calls")],
         );
         let key = format!(":memory:dfs_{}", std::process::id());
-        let (text, nodes, _) = query::query_graph(&db, &key, "Alpha", "dfs", 2, 2000).unwrap();
+        let (text, nodes, _) =
+            query::query_graph(&db, &key, "Alpha", "dfs", 2, 2000, false).unwrap();
         assert!(nodes > 0);
         assert!(text.contains("Alpha"));
     }
@@ -542,7 +563,8 @@ mod tests {
             &[("n1", "n2", "calls"), ("n2", "n3", "calls")],
         );
         let key = format!(":memory:path_{}", std::process::id());
-        let (found, hops, text) = query::find_shortest_path(&db, &key, "Alpha", "Gamma").unwrap();
+        let (found, hops, text) =
+            query::find_shortest_path(&db, &key, "Alpha", "Gamma", false).unwrap();
         assert!(found);
         assert_eq!(hops, 2);
         assert!(text.contains("Alpha"));
@@ -558,7 +580,8 @@ mod tests {
             &[],
         );
         let key = format!(":memory:nopath_{}", std::process::id());
-        let (found, hops, _) = query::find_shortest_path(&db, &key, "Alpha", "Beta").unwrap();
+        let (found, hops, _) =
+            query::find_shortest_path(&db, &key, "Alpha", "Beta", false).unwrap();
         assert!(!found);
         assert_eq!(hops, 0);
     }
@@ -569,7 +592,7 @@ mod tests {
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatchpath_{}", std::process::id());
         let (found, _, text) =
-            query::find_shortest_path(&db, &key, "Alpha", "Nonexistent").unwrap();
+            query::find_shortest_path(&db, &key, "Alpha", "Nonexistent", false).unwrap();
         assert!(!found);
         assert!(text.contains("No matching node"));
     }
@@ -579,7 +602,8 @@ mod tests {
         let db = open_db_in_memory().unwrap();
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:same_{}", std::process::id());
-        let (found, hops, _) = query::find_shortest_path(&db, &key, "Alpha", "Alpha").unwrap();
+        let (found, hops, _) =
+            query::find_shortest_path(&db, &key, "Alpha", "Alpha", false).unwrap();
         assert!(found);
         assert_eq!(hops, 0);
     }

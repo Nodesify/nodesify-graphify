@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, RwLock};
 
-use petgraph::graph::{NodeIndex, UnGraph};
+use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 use rusqlite::Connection;
 
 /// Global cache of loaded graphs, keyed by normalized DB path.
@@ -39,10 +41,36 @@ struct NodeData {
 struct EdgeData {
     relation: String,
     confidence: String,
+    confidence_score: Option<f64>,
+}
+
+impl EdgeData {
+    /// Effective strength of this edge: the stored numeric score when
+    /// present, otherwise a rank derived from the confidence label.
+    fn strength(&self) -> f64 {
+        self.confidence_score
+            .unwrap_or_else(|| confidence_rank(&self.confidence))
+    }
+}
+
+/// Fallback strength for edges without a numeric score. Alphabetical
+/// string comparison of confidence labels does NOT order by strength
+/// ("SEMANTIC" > "LLM" lexicographically), so map labels to numbers.
+fn confidence_rank(confidence: &str) -> f64 {
+    match confidence.to_uppercase().as_str() {
+        "DECLARED" => 1.0,
+        "EXTRACTED" => 0.9,
+        "INFERRED" => 0.7,
+        "SEMANTIC" => 0.6,
+        _ => 0.5,
+    }
 }
 
 struct LoadedGraph {
-    graph: UnGraph<NodeData, EdgeData>,
+    /// Directed storage even though most traversals are undirected: the
+    /// edge orientation (caller → callee, importer → module) is preserved,
+    /// and `directed` queries can follow it.
+    graph: DiGraph<NodeData, EdgeData>,
     id_to_idx: HashMap<String, NodeIndex>,
 }
 
@@ -69,7 +97,7 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
         }
     }
 
-    let mut graph = UnGraph::new_undirected();
+    let mut graph = DiGraph::new();
     let mut id_to_idx = HashMap::new();
     for (id, label, sf, comm, doc) in &nodes {
         let idx = graph.add_node(NodeData {
@@ -83,14 +111,21 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
     }
 
     {
-        let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
-        let rows: Vec<(String, String, String, String)> = stmt
+        let mut stmt =
+            db.prepare("SELECT source, target, relation, confidence, confidence_score FROM edges")?;
+        let rows: Vec<(String, String, String, String, Option<f64>)> = stmt
             .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
             })?
             .filter_map(|r| r.ok())
             .collect();
-        for (src, tgt, rel, conf) in rows {
+        for (src, tgt, rel, conf, score) in rows {
             if let (Some(&s), Some(&t)) = (id_to_idx.get(&src), id_to_idx.get(&tgt)) {
                 graph.add_edge(
                     s,
@@ -98,6 +133,7 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
                     EdgeData {
                         relation: rel,
                         confidence: conf,
+                        confidence_score: score,
                     },
                 );
             }
@@ -123,21 +159,108 @@ fn load_graph_cached(db: &Connection, db_path: &str) -> graphify_core::Result<Ar
     Ok(loaded)
 }
 
+/// Neighbors of `idx`: outgoing only when traversing a directed graph,
+/// both directions otherwise.
+fn iter_neighbors<'a>(
+    graph: &'a DiGraph<NodeData, EdgeData>,
+    idx: NodeIndex,
+    directed: bool,
+) -> impl Iterator<Item = NodeIndex> + 'a {
+    let outgoing = graph.neighbors_directed(idx, Direction::Outgoing);
+    if directed {
+        Box::new(outgoing) as Box<dyn Iterator<Item = NodeIndex> + 'a>
+    } else {
+        Box::new(outgoing.chain(graph.neighbors_directed(idx, Direction::Incoming)))
+            as Box<dyn Iterator<Item = NodeIndex> + 'a>
+    }
+}
+
+/// The strongest edge connecting `a` and `b`, in either direction.
+fn edge_between(
+    graph: &DiGraph<NodeData, EdgeData>,
+    a: NodeIndex,
+    b: NodeIndex,
+) -> Option<&EdgeData> {
+    let forward = graph
+        .edges_directed(a, Direction::Outgoing)
+        .find(|e| e.target() == b)
+        .map(|e| e.weight());
+    match forward {
+        Some(w) => Some(w),
+        None => graph
+            .edges_directed(b, Direction::Outgoing)
+            .find(|e| e.target() == a)
+            .map(|e| e.weight()),
+    }
+}
+
+/// Lowercase word tokens, splitting camelCase / snake_case / kebab-case and
+/// punctuation so "parseExtraction", "parse_extraction" and
+/// "parse-extraction" all tokenize identically.
+fn tokenize(s: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for ch in s.chars() {
+        if ch.is_alphanumeric() {
+            let prev_upper = current.chars().last().is_some_and(|c| c.is_uppercase());
+            if !current.is_empty() && ch.is_uppercase() && !prev_upper {
+                tokens.push(std::mem::take(&mut current).to_lowercase());
+            }
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current).to_lowercase());
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current.to_lowercase());
+    }
+    tokens
+}
+
+/// Score nodes against question terms: exact token match on the label beats
+/// prefix beats substring; file-path matches count at half weight.
 fn score_nodes(loaded: &LoadedGraph, terms: &[String]) -> Vec<(f64, NodeIndex)> {
     let mut scored: Vec<(f64, NodeIndex)> = Vec::new();
     for idx in loaded.graph.node_indices() {
         let node = &loaded.graph[idx];
-        let label_lower = node.label.to_lowercase();
-        let sf_lower = node.source_file.to_lowercase();
+        let label_tokens = tokenize(&node.label);
+        let file_tokens = tokenize(&node.source_file);
         let mut score = 0.0;
         for term in terms {
+            let term = term.trim();
             if term.len() <= 2 {
                 continue;
             }
-            if label_lower.contains(&term.to_lowercase()) {
-                score += 1.0;
+            let term_lower = term.to_lowercase();
+            let term_tokens = tokenize(term);
+            let label_lower = node.label.to_lowercase();
+            let sf_lower = node.source_file.to_lowercase();
+
+            let label_score = if label_lower.contains(&term_lower) {
+                1.0
+            } else {
+                term_tokens
+                    .iter()
+                    .map(|tt| {
+                        if label_tokens.iter().any(|lt| lt == tt) {
+                            0.9
+                        } else if label_tokens.iter().any(|lt| lt.starts_with(tt.as_str())) {
+                            0.7
+                        } else if label_tokens.iter().any(|lt| lt.contains(tt.as_str())) {
+                            0.5
+                        } else {
+                            0.0
+                        }
+                    })
+                    .fold(0.0_f64, f64::max)
+            };
+            if label_score > 0.0 {
+                score += label_score;
+                continue;
             }
-            if sf_lower.contains(&term.to_lowercase()) {
+            if sf_lower.contains(&term_lower)
+                || file_tokens.iter().any(|ft| term_tokens.contains(ft))
+            {
                 score += 0.5;
             }
         }
@@ -145,7 +268,13 @@ fn score_nodes(loaded: &LoadedGraph, terms: &[String]) -> Vec<(f64, NodeIndex)> 
             scored.push((score, idx));
         }
     }
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Deterministic order: score desc, then label, then id.
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| loaded.graph[a.1].label.cmp(&loaded.graph[b.1].label))
+            .then_with(|| loaded.graph[a.1].id.cmp(&loaded.graph[b.1].id))
+    });
     scored
 }
 
@@ -153,6 +282,7 @@ fn bfs_subgraph(
     loaded: &LoadedGraph,
     start_nodes: &[NodeIndex],
     max_depth: usize,
+    directed: bool,
 ) -> (HashSet<NodeIndex>, Vec<(NodeIndex, NodeIndex)>) {
     let mut visited: HashSet<NodeIndex> = start_nodes.iter().copied().collect();
     let mut frontier: Vec<NodeIndex> = start_nodes.to_vec();
@@ -161,7 +291,7 @@ fn bfs_subgraph(
     for _ in 0..max_depth {
         let mut next_frontier = Vec::new();
         for &node in &frontier {
-            for neighbor in loaded.graph.neighbors(node) {
+            for neighbor in iter_neighbors(&loaded.graph, node, directed) {
                 if !visited.contains(&neighbor) {
                     visited.insert(neighbor);
                     next_frontier.push(neighbor);
@@ -181,6 +311,7 @@ fn dfs_subgraph(
     loaded: &LoadedGraph,
     start_nodes: &[NodeIndex],
     max_depth: usize,
+    directed: bool,
 ) -> (HashSet<NodeIndex>, Vec<(NodeIndex, NodeIndex)>) {
     let mut visited: HashSet<NodeIndex> = HashSet::new();
     let mut edges_seen: Vec<(NodeIndex, NodeIndex)> = Vec::new();
@@ -191,7 +322,7 @@ fn dfs_subgraph(
             continue;
         }
         visited.insert(node);
-        for neighbor in loaded.graph.neighbors(node) {
+        for neighbor in iter_neighbors(&loaded.graph, node, directed) {
             if !visited.contains(&neighbor) {
                 stack.push((neighbor, depth + 1));
                 edges_seen.push((node, neighbor));
@@ -239,13 +370,10 @@ fn subgraph_to_text(
     for (src_idx, tgt_idx) in edges_seen {
         let src = &loaded.graph[*src_idx];
         let tgt = &loaded.graph[*tgt_idx];
-        if let Some(edge) = loaded.graph.edges_connecting(*src_idx, *tgt_idx).next() {
+        if let Some(edge) = edge_between(&loaded.graph, *src_idx, *tgt_idx) {
             let line = format!(
                 "EDGE {} --{} [{}]--> {}\n",
-                src.label,
-                edge.weight().relation,
-                edge.weight().confidence,
-                tgt.label
+                src.label, edge.relation, edge.confidence, tgt.label
             );
             if out.len() + line.len() > char_budget {
                 out.push_str(&format!(
@@ -265,6 +393,7 @@ fn shortest_path_bfs(
     loaded: &LoadedGraph,
     start: NodeIndex,
     end: NodeIndex,
+    directed: bool,
 ) -> Option<Vec<NodeIndex>> {
     if start == end {
         return Some(vec![start]);
@@ -276,7 +405,7 @@ fn shortest_path_bfs(
     visited.insert(start);
 
     while let Some(current) = queue.pop_front() {
-        for neighbor in loaded.graph.neighbors(current) {
+        for neighbor in iter_neighbors(&loaded.graph, current, directed) {
             if visited.contains(&neighbor) {
                 continue;
             }
@@ -298,6 +427,7 @@ fn shortest_path_bfs(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn query_graph(
     db: &Connection,
     db_path: &str,
@@ -305,6 +435,7 @@ pub fn query_graph(
     mode: &str,
     depth: usize,
     budget: i64,
+    directed: bool,
 ) -> graphify_core::Result<(String, usize, usize)> {
     let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
@@ -319,9 +450,9 @@ pub fn query_graph(
 
     let seed_nodes: Vec<NodeIndex> = scored.iter().take(5).map(|(_, idx)| *idx).collect();
     let (visited, edges_seen) = if mode == "dfs" {
-        dfs_subgraph(&loaded, &seed_nodes, depth)
+        dfs_subgraph(&loaded, &seed_nodes, depth, directed)
     } else {
-        bfs_subgraph(&loaded, &seed_nodes, depth)
+        bfs_subgraph(&loaded, &seed_nodes, depth, directed)
     };
 
     let seed_labels: Vec<String> = seed_nodes
@@ -330,9 +461,10 @@ pub fn query_graph(
         .collect();
 
     let header = format!(
-        "Traversal: {} depth={} | Start: {:?} | {} nodes found\n\n",
+        "Traversal: {} depth={}{} | Start: {:?} | {} nodes found\n\n",
         mode.to_uppercase(),
         depth,
+        if directed { " directed" } else { "" },
         seed_labels,
         visited.len()
     );
@@ -349,6 +481,7 @@ pub fn find_shortest_path(
     db_path: &str,
     source_query: &str,
     target_query: &str,
+    directed: bool,
 ) -> graphify_core::Result<(bool, usize, String)> {
     let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
@@ -388,7 +521,7 @@ pub fn find_shortest_path(
         }
     };
 
-    let path = match shortest_path_bfs(&loaded, src_idx, tgt_idx) {
+    let path = match shortest_path_bfs(&loaded, src_idx, tgt_idx, directed) {
         Some(p) => p,
         None => return Ok((false, 0, "No path found.".to_string())),
     };
@@ -399,9 +532,9 @@ pub fn find_shortest_path(
     for i in 0..path.len().saturating_sub(1) {
         let src = &loaded.graph[path[i]];
         let tgt = &loaded.graph[path[i + 1]];
-        let edge_info = loaded.graph.edges_connecting(path[i], path[i + 1]).next();
-        let rel = edge_info.map_or("?".to_string(), |e| e.weight().relation.clone());
-        let conf = edge_info.map_or("?".to_string(), |e| e.weight().confidence.clone());
+        let edge_info = edge_between(&loaded.graph, path[i], path[i + 1]);
+        let rel = edge_info.map_or("?".to_string(), |e| e.relation.clone());
+        let conf = edge_info.map_or("?".to_string(), |e| e.confidence.clone());
         text.push_str(&format!(
             "  {} --{} [{}]--> {}\n",
             src.label, rel, conf, tgt.label
@@ -438,28 +571,37 @@ pub fn explain_with_neighbors(
     };
 
     let node = &loaded.graph[idx];
+    // Explain is a lookup, not a traversal: neighbors in both directions.
+    let mut seen: HashSet<NodeIndex> = HashSet::new();
     let mut neighbors: Vec<EdgeInfoResult> = Vec::new();
-
-    for neighbor in loaded.graph.neighbors(idx) {
+    for neighbor in iter_neighbors(&loaded.graph, idx, false) {
+        if !seen.insert(neighbor) {
+            continue;
+        }
         let neighbor_data = &loaded.graph[neighbor];
-        let edge = loaded.graph.edges_connecting(idx, neighbor).next();
+        let edge = edge_between(&loaded.graph, idx, neighbor);
         neighbors.push(EdgeInfoResult {
             neighbor_id: neighbor_data.id.clone(),
             neighbor_label: neighbor_data.label.clone(),
             neighbor_file: neighbor_data.source_file.clone(),
-            relation: edge.map_or("?".to_string(), |e| e.weight().relation.clone()),
-            confidence: edge.map_or("?".to_string(), |e| e.weight().confidence.clone()),
+            relation: edge.map_or("?".to_string(), |e| e.relation.clone()),
+            confidence: edge.map_or("?".to_string(), |e| e.confidence.clone()),
+            strength: edge.map_or(0.0, |e| e.strength()),
         });
     }
 
-    neighbors.sort_by(|a, b| b.confidence.cmp(&a.confidence));
+    // Strongest connections first; ties broken deterministically.
+    neighbors.sort_by(|a, b| {
+        b.strength
+            .partial_cmp(&a.strength)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.relation.cmp(&b.relation))
+            .then_with(|| a.neighbor_id.cmp(&b.neighbor_id))
+    });
+    let neighbor_count = neighbors.len();
     neighbors.truncate(20);
 
-    let answer = format!(
-        "explain: {} ({} neighbors)",
-        node.label,
-        loaded.graph.neighbors(idx).count()
-    );
+    let answer = format!("explain: {} ({} neighbors)", node.label, neighbor_count);
     log_query(db, node_id, &answer);
 
     Ok(Some(ExplainResult {
@@ -467,7 +609,7 @@ pub fn explain_with_neighbors(
         label: node.label.clone(),
         source_file: node.source_file.clone(),
         community: node.community,
-        neighbor_count: loaded.graph.neighbors(idx).count(),
+        neighbor_count,
         neighbors,
     }))
 }
@@ -478,6 +620,7 @@ pub struct EdgeInfoResult {
     pub neighbor_file: String,
     pub relation: String,
     pub confidence: String,
+    pub strength: f64,
 }
 
 pub struct ExplainResult {
@@ -487,4 +630,142 @@ pub struct ExplainResult {
     pub community: Option<i64>,
     pub neighbor_count: usize,
     pub neighbors: Vec<EdgeInfoResult>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphify_core::db::open_db_in_memory;
+
+    fn seed(db: &Connection) -> String {
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('a', 'Alpha', 'code', 'src/alpha.rs'),
+                ('b', 'BetaService', 'code', 'src/beta.rs'),
+                ('c', 'Gamma', 'code', 'src/gamma.rs'),
+                ('d', 'Delta', 'code', 'src/delta.rs');
+            INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES
+                ('a', 'b', 'calls', 'EXTRACTED', 1.0, 'src/alpha.rs'),
+                ('b', 'c', 'calls', 'SEMANTIC', NULL, 'src/beta.rs'),
+                ('c', 'd', 'imports', 'INFERRED', 0.7, 'src/gamma.rs');",
+        )
+        .unwrap();
+        "test".to_string()
+    }
+
+    fn loaded(db: &Connection, key: &str) -> Arc<LoadedGraph> {
+        load_graph_cached(db, key).unwrap()
+    }
+
+    #[test]
+    fn tokenize_splits_case_and_separators() {
+        assert_eq!(
+            tokenize("parseExtractionText"),
+            vec!["parse", "extraction", "text"]
+        );
+        assert_eq!(
+            tokenize("parse_extraction_text"),
+            vec!["parse", "extraction", "text"]
+        );
+        assert_eq!(
+            tokenize("Parse-Extraction.Text"),
+            vec!["parse", "extraction", "text"]
+        );
+    }
+
+    #[test]
+    fn camel_query_finds_snake_label() {
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('n', 'parse_extraction_text', 'code', 'src/p.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES ('n', 'n', 'calls', 'EXTRACTED', 'src/p.rs');",
+        )
+        .unwrap();
+        let g = loaded(&db, "camel");
+        let scored = score_nodes(&g, &["parseExtractionText".to_string()]);
+        assert_eq!(
+            scored.len(),
+            1,
+            "camelCase query should match snake_case label"
+        );
+    }
+
+    #[test]
+    fn directed_bfs_follows_edge_direction_only() {
+        let db = open_db_in_memory().unwrap();
+        let key = seed(&db);
+        let g = loaded(&db, &key);
+
+        let a = g.id_to_idx["a"];
+        // b imports d? No — c imports d, so from 'a', directed BFS cannot
+        // reach 'd' backwards through a->b<-? a->b->c->d is forward: use
+        // 'd' as seed and confirm directed traversal does NOT walk
+        // imports backwards to 'c'.
+        let d = g.id_to_idx["d"];
+        let (visited_fwd, _) = bfs_subgraph(&g, &[d], 2, true);
+        assert!(!visited_fwd.contains(&g.id_to_idx["c"]));
+
+        let (visited_und, _) = bfs_subgraph(&g, &[d], 2, false);
+        assert!(visited_und.contains(&g.id_to_idx["c"]));
+
+        let _ = a;
+    }
+
+    #[test]
+    fn directed_path_respects_direction() {
+        let db = open_db_in_memory().unwrap();
+        let key = seed(&db);
+        // a -> b -> c -> d: directed path a..d exists; d..a does not
+        let (found, hops, _) = find_shortest_path(&db, &key, "Alpha", "Delta", true).unwrap();
+        assert!(found);
+        assert_eq!(hops, 3);
+
+        let (found_rev, _, _) = find_shortest_path(&db, &key, "Delta", "Alpha", true).unwrap();
+        assert!(!found_rev);
+
+        let (found_und, hops_und, _) =
+            find_shortest_path(&db, &key, "Delta", "Alpha", false).unwrap();
+        assert!(found_und);
+        assert_eq!(hops_und, 3);
+    }
+
+    #[test]
+    fn explain_sorts_by_numeric_strength_not_alphabet() {
+        let db = open_db_in_memory().unwrap();
+        let key = seed(&db);
+        let result = explain_with_neighbors(&db, &key, "b").unwrap().unwrap();
+        assert_eq!(result.neighbors.len(), 2);
+        // b -> c is SEMANTIC (fallback 0.6), a -> b is EXTRACTED 1.0.
+        // Alphabetical ("EXTRACTED" < "SEMANTIC") would put SEMANTIC first.
+        assert_eq!(result.neighbors[0].neighbor_id, "a");
+        assert!(result.neighbors[0].strength > result.neighbors[1].strength);
+    }
+
+    #[test]
+    fn scoring_is_deterministic_on_ties() {
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('x', 'handler', 'code', 'src/x.rs'),
+                ('y', 'handler', 'code', 'src/y.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('x', 'y', 'calls', 'EXTRACTED', 'src/x.rs');",
+        )
+        .unwrap();
+        let g = loaded(&db, "ties");
+        let s1 = score_nodes(&g, &["handler".to_string()]);
+        let s2 = score_nodes(&g, &["handler".to_string()]);
+        let ids = |s: &[(f64, NodeIndex)]| -> Vec<String> {
+            s.iter().map(|(_, i)| g.graph[*i].id.clone()).collect()
+        };
+        assert_eq!(ids(&s1), ids(&s2));
+    }
+
+    #[test]
+    fn confidence_rank_orders_labels() {
+        assert!(confidence_rank("DECLARED") > confidence_rank("EXTRACTED"));
+        assert!(confidence_rank("EXTRACTED") > confidence_rank("INFERRED"));
+        assert!(confidence_rank("INFERRED") > confidence_rank("SEMANTIC"));
+    }
 }

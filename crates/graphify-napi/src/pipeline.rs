@@ -12,6 +12,8 @@ pub struct PipelineResult {
     pub cluster_result: graphify_cluster::ClusterResult,
     pub analysis: graphify_analyze::AnalysisResult,
     pub report: String,
+    /// Number of new/changed files processed in this run.
+    pub files_processed: usize,
 }
 
 fn timestamp() -> String {
@@ -81,22 +83,33 @@ fn save_semantic_cache(
 /// No-op if no semantic backend is configured (GRAPHIFY_LLM_API_KEY /
 /// OPENAI_API_KEY / GEMINI_API_KEY, or an explicit GRAPHIFY_LLM_BACKEND).
 /// Image files (no AST extraction) get their own synthetic extraction via
-/// the backend's vision path.
+/// the backend's vision path. Cache misses are extracted in parallel by a
+/// bounded worker pool (`GRAPHIFY_LLM_CONCURRENCY`, default 4). Returns
+/// (enriched, failed) file counts — failures are reported, never silently
+/// dropped.
 fn enrich_with_semantics(
     files: &[PathBuf],
     extractions: &mut Vec<graphify_extract::Extraction>,
     db: &Connection,
-) {
-    let backend = match graphify_semantic::backend_from_env() {
-        Ok(b) => b,
-        Err(_) => return,
-    };
+) -> (usize, usize) {
+    let backend_factory = || graphify_semantic::backend_from_env();
+    // Gate on backend availability before doing any work.
+    if backend_factory().is_err() {
+        return (0, 0);
+    }
 
     let mut file_to_idx: HashMap<PathBuf, usize> = HashMap::new();
     for (i, ext) in extractions.iter().enumerate() {
         file_to_idx.insert(ext.file_path.clone(), i);
     }
 
+    // First pass: resolve extraction slots and collect cache misses.
+    struct Pending {
+        path: PathBuf,
+        hash: String,
+        idx: usize,
+    }
+    let mut pending: Vec<Pending> = Vec::new();
     for file_path in files {
         let hash = match file_hash(file_path) {
             Some(h) => h,
@@ -122,44 +135,76 @@ fn enrich_with_semantics(
             None => continue,
         };
 
-        let sem_ext = match check_semantic_cache(db, file_path, &hash) {
-            Some(cached) => cached,
-            None => {
-                let results = graphify_semantic::extract_semantic_for_files(
-                    std::slice::from_ref(file_path),
-                    backend.as_ref(),
-                );
-                let Some((_, extraction)) = results.into_iter().next() else {
-                    continue;
-                };
-                save_semantic_cache(db, file_path, &hash, &extraction);
-                extraction
-            }
-        };
-
-        let ext = &mut extractions[idx];
-        for sem_node in sem_ext.nodes {
-            ext.nodes.push(graphify_extract::ExtractedNode {
-                id: sem_node.id,
-                label: sem_node.label,
-                source_file: file_path.clone(),
-                source_line: None,
-                docstring: Some(sem_node.summary),
-                node_type: sem_node.node_type,
+        if check_semantic_cache(db, file_path, &hash).is_none() {
+            pending.push(Pending {
+                path: file_path.clone(),
+                hash,
+                idx,
             });
         }
-        for sem_edge in sem_ext.edges {
+    }
+
+    // Batch-extract cache misses in parallel.
+    let pending_paths: Vec<PathBuf> = pending.iter().map(|p| p.path.clone()).collect();
+    let results = graphify_semantic::extract_semantic_for_files_parallel(
+        &pending_paths,
+        backend_factory,
+        graphify_semantic::concurrency_from_env(),
+    );
+    let extraction_by_path: HashMap<PathBuf, graphify_semantic::SemanticExtraction> = results
+        .into_iter()
+        .filter_map(|(path, result)| match result {
+            Ok(extraction) => {
+                let meta = pending.iter().find(|p| p.path == path);
+                if let Some(meta) = meta {
+                    save_semantic_cache(db, &path, &meta.hash, &extraction);
+                }
+                Some((path, extraction))
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: semantic extraction failed for {}: {}",
+                    path.display(),
+                    e
+                );
+                None
+            }
+        })
+        .collect();
+
+    // Second pass: merge results into the extractions.
+    let mut enriched = 0usize;
+    let failed = pending.len() - extraction_by_path.len();
+    for meta in &pending {
+        let Some(sem_ext) = extraction_by_path.get(&meta.path) else {
+            continue;
+        };
+        enriched += 1;
+
+        let ext = &mut extractions[meta.idx];
+        for sem_node in &sem_ext.nodes {
+            ext.nodes.push(graphify_extract::ExtractedNode {
+                id: sem_node.id.clone(),
+                label: sem_node.label.clone(),
+                source_file: meta.path.clone(),
+                source_line: None,
+                docstring: Some(sem_node.summary.clone()),
+                node_type: sem_node.node_type.clone(),
+            });
+        }
+        for sem_edge in &sem_ext.edges {
             ext.edges.push(graphify_extract::ExtractedEdge {
-                source: sem_edge.source,
-                target: sem_edge.target,
-                relation: sem_edge.relation,
+                source: sem_edge.source.clone(),
+                target: sem_edge.target.clone(),
+                relation: sem_edge.relation.clone(),
                 confidence: "SEMANTIC".to_string(),
                 confidence_score: None,
-                source_file: file_path.clone(),
+                source_file: meta.path.clone(),
                 source_line: None,
             });
         }
     }
+    (enriched, failed)
 }
 
 pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
@@ -194,7 +239,7 @@ pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<Pipe
     let (status, files_processed, nodes_added, edges_added) = match &result {
         Ok(r) => (
             "completed",
-            0i64,
+            r.files_processed as i64,
             r.build_result.nodes_added as i64,
             r.build_result.edges_added as i64,
         ),
@@ -274,14 +319,17 @@ fn run_pipeline_inner(
                 communities: Default::default(),
                 labels: Default::default(),
                 iterations: 0,
+                modularity: 0.0,
             },
             analysis,
             report,
+            files_processed: 0,
         });
     }
 
     let mut extractions = graphify_extract::extract(&files_to_process, db)?;
-    enrich_with_semantics(&files_to_process, &mut extractions, db);
+    let (semantic_enriched, semantic_failed) =
+        enrich_with_semantics(&files_to_process, &mut extractions, db);
     let build_result = graphify_build::build(&extractions, db)?;
 
     // Entity dedup runs after build, before clustering — duplicate nodes
@@ -297,6 +345,18 @@ fn run_pipeline_inner(
     ) {
         eprintln!("warning: failed to record dedup count: {}", e);
     }
+    if let Err(e) = db.execute(
+        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_semantic_enriched', ?1)",
+        rusqlite::params![semantic_enriched.to_string()],
+    ) {
+        eprintln!("warning: failed to record semantic count: {}", e);
+    }
+    if semantic_failed > 0 {
+        let _ = db.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_semantic_failed', ?1)",
+            rusqlite::params![semantic_failed.to_string()],
+        );
+    }
 
     let cluster_result = graphify_cluster::cluster(db)?;
     let analysis = graphify_analyze::analyze(db)?;
@@ -310,6 +370,7 @@ fn run_pipeline_inner(
         cluster_result,
         analysis,
         report,
+        files_processed: files_to_process.len(),
     })
 }
 
