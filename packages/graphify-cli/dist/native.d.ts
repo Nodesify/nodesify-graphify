@@ -6,6 +6,7 @@ export declare const exportJsonCmd: any;
 export declare const exportHtmlCmd: any;
 export declare const exportGraphmlCmd: any;
 export declare const queryGraph: any;
+export declare const repoMap: any;
 export declare const findPath: any;
 export declare const clusterOnly: any;
 export declare const mergeGraphs: any;

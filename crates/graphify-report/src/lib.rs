@@ -103,14 +103,56 @@ pub fn generate_report(
                         .unwrap_or_else(|| "-".into());
                     report.push_str(&format!("- **{label}** ({size} nodes, cohesion {coh})\n"));
                 }
-                if community_count as i64 > rows.len() as i64 {
+                if community_count > rows.len() as i64 {
                     report.push_str(&format!(
                         "\n... and {} more communities (see the MCP list_communities tool).\n",
-                        community_count as i64 - rows.len() as i64
+                        community_count - rows.len() as i64
                     ));
                 }
                 report.push('\n');
             }
+        }
+    }
+
+    report.push_str(
+        "## Key Files
+
+",
+    );
+    {
+        // Aggregate degree per file from two index-friendly joins; shown
+        // relative to the project root. Lightweight companion to the full
+        // PageRank map (`map` command / repo_map MCP tool).
+        let root = db.path().and_then(|db_path| {
+            std::path::Path::new(db_path)
+                .parent()?
+                .parent()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        });
+        let sql = "SELECT f, SUM(cnt) AS total FROM (                      SELECT n.source_file AS f, COUNT(*) AS cnt FROM nodes n JOIN edges e ON e.source = n.id GROUP BY n.source_file                      UNION ALL                      SELECT n.source_file AS f, COUNT(*) AS cnt FROM nodes n JOIN edges e ON e.target = n.id GROUP BY n.source_file                    ) GROUP BY f ORDER BY total DESC, f ASC LIMIT 10";
+        let mut stmt = db.prepare(sql)?;
+        let rows: Vec<(String, i64)> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if rows.is_empty() {
+            report.push_str(
+                "No connected files.
+
+",
+            );
+        } else {
+            for (file, total) in &rows {
+                let display = match &root {
+                    Some(r) => graphify_paths::relative_display(file, r),
+                    None => file.clone(),
+                };
+                report.push_str(&format!(
+                    "- **{display}** ({total} edge endpoints)
+"
+                ));
+            }
+            report.push('\n');
         }
     }
 

@@ -648,6 +648,7 @@ version = "0.1.0"
 dependencies = [
  "graphify-analyze",
  "graphify-core",
+ "graphify-paths",
  "rusqlite",
 ]
 

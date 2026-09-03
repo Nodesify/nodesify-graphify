@@ -90,6 +90,7 @@ mod tests {
             source_file: PathBuf::from("f.py"),
             source_line: None,
             docstring: None,
+            signature: None,
             node_type: "function".into(),
         }
     }

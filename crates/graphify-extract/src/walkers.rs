@@ -55,6 +55,34 @@ fn find_body<'a>(node: &Node<'a>, cfg: &LanguageConfig) -> Option<Node<'a>> {
     None
 }
 
+/// Signature line(s): source text from the item start to the start of its
+/// body, whitespace-collapsed and capped. Lets agents see WHAT a symbol is
+/// without opening the file.
+fn node_signature(node: &Node, source: &[u8], cfg: &LanguageConfig) -> Option<String> {
+    let body_start = find_body(node, cfg)
+        .map(|b| b.byte_range().start)
+        .unwrap_or_else(|| node.byte_range().end);
+    let start = node.byte_range().start;
+    if body_start <= start {
+        return None;
+    }
+    let raw = std::str::from_utf8(&source[start..body_start.min(source.len())]).unwrap_or("");
+    let mut sig = String::new();
+    for word in raw.split_whitespace() {
+        sig.push_str(word);
+        sig.push(' ');
+        if sig.len() > 200 {
+            break;
+        }
+    }
+    let sig = sig.trim_end().to_string();
+    if sig.is_empty() {
+        None
+    } else {
+        Some(sig)
+    }
+}
+
 /// Extract the docstring: the first string/expression in the body.
 fn extract_docstring(node: &Node, source: &[u8], cfg: &LanguageConfig) -> Option<String> {
     let body = find_body(node, cfg)?;
@@ -163,6 +191,7 @@ pub(crate) fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'
                     source_file: state.file_path.clone(),
                     source_line: Some(node.start_position().row as u32),
                     docstring,
+                    signature: node_signature(node, state.source, state.cfg),
                     node_type: "class".to_string(),
                 });
 
@@ -221,6 +250,7 @@ pub(crate) fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'
                     source_file: state.file_path.clone(),
                     source_line: Some(node.start_position().row as u32),
                     docstring,
+                    signature: node_signature(node, state.source, state.cfg),
                     node_type: "function".to_string(),
                 });
 
@@ -502,6 +532,7 @@ fn extract_rationale(state: &mut ExtractionState, source: &[u8]) {
             source_file: state.file_path.clone(),
             source_line: Some(line_num),
             docstring: None,
+            signature: None,
             node_type: "rationale".to_string(),
         });
 
@@ -579,6 +610,7 @@ pub(crate) fn extract_single(
         source_file: path.to_path_buf(),
         source_line: None,
         docstring: None,
+        signature: None,
         node_type: "file".to_string(),
     });
 

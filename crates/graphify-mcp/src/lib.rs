@@ -24,8 +24,16 @@ fn tools() -> Value {
             "depth": {"type": "integer", "default": 2},
             "budget": {"type": "integer", "default": 2000},
             "directed": {"type": "boolean", "default": false,
-                "description": "Follow edges only in their stored direction (caller -> callee, importer -> module) instead of both ways."}},
+                "description": "Follow edges only in their stored direction (caller -> callee, importer -> module) instead of both ways."},
+            "detail": {"type": "string", "enum": ["all", "high"], "default": "all",
+                "description": "'high' keeps only EXTRACTED/DECLARED facts, dropping inferred and semantic edges."},
+            "cursor": {"type": "integer", "default": 0,
+                "description": "Continuation token from a previous truncated result: fetches the next slice of ranked nodes."}},
             "required": ["question"]}},
+        {"name": "repo_map", "description": "Aider-style repo map: files ranked by PageRank over the reference graph with top symbols per file. One budgeted blob to orient on a codebase.",
+         "inputSchema": {"type": "object", "properties": {
+            "budget": {"type": "integer", "default": 2000},
+            "detail": {"type": "string", "enum": ["all", "high"], "default": "all"}}}},
         {"name": "explain", "description": "Explain a node: its metadata and up to 20 neighbors with relations and confidence.",
          "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
         {"name": "get_neighbors", "description": "List a node's neighbors, optionally filtered by relation.",
@@ -35,7 +43,8 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {
             "source": {"type": "string"}, "target": {"type": "string"},
             "directed": {"type": "boolean", "default": false,
-                "description": "Follow edges only in their stored direction."}},
+                "description": "Follow edges only in their stored direction."},
+            "detail": {"type": "string", "enum": ["all", "high"], "default": "all"}},
             "required": ["source", "target"]}},
         {"name": "affected", "description": "Blast radius: everything impacted by changing a node (reverse reachability over calls/imports/uses).",
          "inputSchema": {"type": "object", "properties": {
@@ -68,6 +77,15 @@ fn bool_arg(args: &Value, key: &str) -> Option<bool> {
     args.get(key).and_then(|v| v.as_bool())
 }
 
+/// Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts (strength
+/// >= 0.9); anything else keeps all facts.
+fn min_strength_for(detail: &Option<String>) -> f64 {
+    match detail.as_deref().map(|s| s.to_lowercase()).as_deref() {
+        Some("high") => 0.9,
+        _ => 0.0,
+    }
+}
+
 /// Community id -> hub label, for human/agent-readable output.
 fn community_label_map(db: &Connection) -> std::collections::HashMap<i64, String> {
     let mut stmt = match db.prepare("SELECT id, label FROM communities") {
@@ -87,6 +105,8 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
             let budget = args.get("budget").and_then(|v| v.as_u64()).unwrap_or(2000) as usize;
             let directed = bool_arg(args, "directed").unwrap_or(false);
+            let detail = str_arg(args, "detail");
+            let cursor = args.get("cursor").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             graphify_query::query_graph(
                 db,
                 db_path,
@@ -95,8 +115,24 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
                 depth as usize,
                 budget as i64,
                 directed,
+                min_strength_for(&detail),
+                cursor,
             )
-            .map(|(text, n, e)| text_result(format!("{text}\n\n({n} nodes, {e} edges)")))
+            .map(|(text, n, e, next)| {
+                let mut out = format!("{text}\n\n({n} nodes, {e} edges)");
+                if let Some(next) = next {
+                    out.push_str(&format!(
+                        "\n(continuation: re-run with cursor {next} for the next nodes)"
+                    ));
+                }
+                text_result(out)
+            })
+        }
+        "repo_map" => {
+            let budget = args.get("budget").and_then(|v| v.as_u64()).unwrap_or(2000) as i64;
+            let detail = str_arg(args, "detail");
+            graphify_query::repo_map(db, db_path, budget, min_strength_for(&detail))
+                .map(|(text, files)| text_result(format!("{text}\n\n({files} files shown)")))
         }
         "explain" => {
             let node = str_arg(args, "node").unwrap_or_default();
@@ -148,11 +184,18 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let source = str_arg(args, "source").unwrap_or_default();
             let target = str_arg(args, "target").unwrap_or_default();
             let directed = bool_arg(args, "directed").unwrap_or(false);
-            graphify_query::find_shortest_path(db, db_path, &source, &target, directed).map(
-                |(found, hops, text)| {
-                    text_result(format!("{text}\n\n(found: {found}, hops: {hops})"))
-                },
+            let detail = str_arg(args, "detail");
+            graphify_query::find_shortest_path(
+                db,
+                db_path,
+                &source,
+                &target,
+                directed,
+                min_strength_for(&detail),
             )
+            .map(|(found, hops, text)| {
+                text_result(format!("{text}\n\n(found: {found}, hops: {hops})"))
+            })
         }
         "affected" => {
             let node = str_arg(args, "node").unwrap_or_default();
@@ -381,6 +424,7 @@ mod tests {
             .collect();
         for expected in [
             "query_graph",
+            "repo_map",
             "explain",
             "get_neighbors",
             "shortest_path",

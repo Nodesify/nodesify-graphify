@@ -57,6 +57,7 @@ export const exportJsonCmd = binding.exportJsonCmd;
 export const exportHtmlCmd = binding.exportHtmlCmd;
 export const exportGraphmlCmd = binding.exportGraphmlCmd;
 export const queryGraph = binding.queryGraph;
+export const repoMap = binding.repoMap;
 export const findPath = binding.findPath;
 export const clusterOnly = binding.clusterOnly;
 export const mergeGraphs = binding.mergeGraphs;

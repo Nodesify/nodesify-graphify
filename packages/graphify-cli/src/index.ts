@@ -7,6 +7,7 @@ import { explainCommand } from './commands/explain';
 import { exportCommand } from './commands/export';
 import { queryCommand } from './commands/query';
 import { pathCommand } from './commands/path';
+import { mapCommand } from './commands/map';
 import { affectedCommand } from './commands/affected';
 import { mcpCommand } from './commands/mcp';
 import { treeCommand } from './commands/tree';
@@ -70,6 +71,8 @@ program
   .option('--depth <n>', 'Traversal depth', '2')
   .option('--budget <n>', 'Token budget for output', '2000')
   .option('--directed', 'Follow edges only in their stored direction (caller -> callee)')
+  .option('--detail <level>', 'Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts')
+  .option('--cursor <n>', 'Continuation token from a previous truncated query', '0')
   .action(queryCommand);
 
 program
@@ -79,7 +82,16 @@ program
   .argument('<target>', 'Target node label')
   .option('--graph <path>', 'Path to project root', '.')
   .option('--directed', 'Follow edges only in their stored direction (caller -> callee)')
+  .option('--detail <level>', 'Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts')
   .action(pathCommand);
+
+program
+  .command('map')
+  .description('Repo map: PageRank-ranked files with top symbols, within a token budget')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--budget <n>', 'Token budget for output', '2000')
+  .option('--detail <level>', 'Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts')
+  .action(mapCommand);
 
 program
   .command('affected')
