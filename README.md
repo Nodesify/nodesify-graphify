@@ -31,6 +31,7 @@ nodesify-graphify explain <node> [--graph .]            # Explain a node and its
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--graph .]              # Shortest path between two concepts
 nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
+nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
@@ -54,6 +55,18 @@ Running `nodesify-graphify run .` creates `.graphify/` with:
 ### .graphifyignore
 
 Place a `.graphifyignore` file in your project root (gitignore syntax) to exclude files from the graph.
+
+## Semantic enrichment
+
+Set any LLM backend and the pipeline enriches docs, papers, and images into concept nodes automatically:
+
+| Backend | Env vars | Vision |
+|---------|----------|--------|
+| Anthropic Claude (default) | `GRAPHIFY_LLM_API_KEY` | ✓ |
+| OpenAI-compatible (OpenAI, DeepSeek, Ollama, LM Studio, custom) | `GRAPHIFY_LLM_BASE_URL` + `GRAPHIFY_LLM_API_KEY`/`OPENAI_API_KEY` | ✓ |
+| Google Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | ✓ |
+
+`GRAPHIFY_LLM_BACKEND` selects explicitly; `GRAPHIFY_LLM_MODEL` overrides the model. Per-run: `nodesify-graphify run . --backend openai --model gpt-4o-mini`. Images (png/jpg/webp/gif, ≤5 MB) go through each backend's vision API.
 
 ## Architecture
 

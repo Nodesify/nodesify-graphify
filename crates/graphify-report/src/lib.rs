@@ -48,10 +48,113 @@ pub fn generate_report(
 
     let mut report = String::new();
     report.push_str("# Graph Report\n\n");
-    report.push_str(&format!(
-        "**Nodes:** {} | **Edges:** {} | **Communities:** {}\n\n",
-        node_count, edge_count, community_count
-    ));
+    let modularity: Option<f64> = db
+        .query_row(
+            "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    match modularity {
+        Some(q) => report.push_str(&format!(
+            "**Nodes:** {} | **Edges:** {} | **Communities:** {} | **Modularity:** {:.3}\n\n",
+            node_count, edge_count, community_count, q
+        )),
+        None => report.push_str(&format!(
+            "**Nodes:** {} | **Edges:** {} | **Communities:** {}\n\n",
+            node_count, edge_count, community_count
+        )),
+    }
+
+    // Which build produced this graph - lets agents (and hooks) detect a
+    // stale graph written by an older binary.
+    let pipeline_version: Option<String> = db
+        .query_row(
+            "SELECT value FROM _meta WHERE key = 'pipeline_version'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(v) = pipeline_version {
+        report.push_str(&format!("_Built by graphify v{v}._\n\n"));
+    }
+
+    report.push_str("## Communities\n\n");
+    {
+        let communities_stmt =
+            db.prepare("SELECT label, size, cohesion FROM communities ORDER BY size DESC LIMIT 10");
+        if let Ok(mut stmt) = communities_stmt {
+            let rows: Vec<(String, i64, Option<f64>)> = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            if rows.is_empty() {
+                report.push_str("No communities detected.\n\n");
+            } else {
+                for (label, size, cohesion) in &rows {
+                    let coh = cohesion
+                        .map(|c| format!("{c:.2}"))
+                        .unwrap_or_else(|| "-".into());
+                    report.push_str(&format!("- **{label}** ({size} nodes, cohesion {coh})\n"));
+                }
+                if community_count > rows.len() as i64 {
+                    report.push_str(&format!(
+                        "\n... and {} more communities (see the MCP list_communities tool).\n",
+                        community_count - rows.len() as i64
+                    ));
+                }
+                report.push('\n');
+            }
+        }
+    }
+
+    report.push_str(
+        "## Key Files
+
+",
+    );
+    {
+        // Aggregate degree per file from two index-friendly joins; shown
+        // relative to the project root. Lightweight companion to the full
+        // PageRank map (`map` command / repo_map MCP tool).
+        let root = db.path().and_then(|db_path| {
+            std::path::Path::new(db_path)
+                .parent()?
+                .parent()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        });
+        let sql = "SELECT f, SUM(cnt) AS total FROM (                      SELECT n.source_file AS f, COUNT(*) AS cnt FROM nodes n JOIN edges e ON e.source = n.id GROUP BY n.source_file                      UNION ALL                      SELECT n.source_file AS f, COUNT(*) AS cnt FROM nodes n JOIN edges e ON e.target = n.id GROUP BY n.source_file                    ) GROUP BY f ORDER BY total DESC, f ASC LIMIT 10";
+        let mut stmt = db.prepare(sql)?;
+        let rows: Vec<(String, i64)> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if rows.is_empty() {
+            report.push_str(
+                "No connected files.
+
+",
+            );
+        } else {
+            for (file, total) in &rows {
+                let display = match &root {
+                    Some(r) => graphify_paths::relative_display(file, r),
+                    None => file.clone(),
+                };
+                report.push_str(&format!(
+                    "- **{display}** ({total} edge endpoints)
+"
+                ));
+            }
+            report.push('\n');
+        }
+    }
 
     report.push_str("## Hub Nodes (God Nodes)\n\n");
     if analysis.god_nodes.is_empty() {
@@ -72,14 +175,19 @@ pub fn generate_report(
     if analysis.surprising_connections.is_empty() {
         report.push_str("No cross-community connections found.\n\n");
     } else {
+        report.push_str(&format!(
+            "Top {} of the cross-community edges, ranked by novelty (bigger, more cohesive communities joined by fewer edges score higher):\n\n",
+            analysis.surprising_connections.len()
+        ));
         for edge in &analysis.surprising_connections {
             report.push_str(&format!(
-                "- **{}** -> **{}** ({}) [{} -> {}]\n",
+                "- **{}** -> **{}** ({}) [{} -> {}] (score: {:.2})\n",
                 edge.source_label,
                 edge.target_label,
                 edge.relation,
                 label_of(edge.source_community),
-                label_of(edge.target_community)
+                label_of(edge.target_community),
+                edge.score
             ));
         }
         report.push('\n');
@@ -128,6 +236,7 @@ mod tests {
                 label: "Alpha".into(),
                 degree: 1,
                 community: Some(0),
+                is_stub: false,
             }],
             surprising_connections: vec![SurprisingEdge {
                 source: "a".into(),
@@ -137,6 +246,7 @@ mod tests {
                 relation: "calls".into(),
                 source_community: Some(0),
                 target_community: Some(1),
+                score: 2.5,
             }],
             suggested_questions: vec!["Why does Alpha have so many connections?".into()],
         };

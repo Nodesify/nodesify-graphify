@@ -39,13 +39,33 @@ exports.statusGitHooks = statusGitHooks;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
+const UPDATE_HELPER = `
+const GRAPHIFY_HOOK_VERSION = '2';
+// Prefer a workspace-local CLI, then a locally-installed package, and only
+// then whatever is on PATH — a stale global install would rebuild the graph
+// with old pipeline code and silently regress the report.
+function runGraphifyUpdate() {
+  if (existsSync(path.join('packages', 'graphify-cli', 'dist', 'index.js'))) {
+    execSync('node packages/graphify-cli/dist/index.js update .', { stdio: 'inherit' });
+    return;
+  }
+  try {
+    execSync('npx --no-install nodesify-graphify update .', { stdio: 'inherit' });
+  } catch {
+    execSync('nodesify-graphify update .', { stdio: 'inherit' });
+  }
+}
+`;
 const POST_COMMIT_SCRIPT = `// nodesify-graphify-hook-start
 const { execSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
-
+${UPDATE_HELPER}
 try {
-  const gitDir = execSync('git rev-parse --git-dir 2>/dev/null', { encoding: 'utf-8' }).trim();
+  // No shell redirects here: execSync uses cmd.exe on Windows where
+  // "2>/dev/null" fails with "The system cannot find the path specified".
+  // execSync captures stderr into the error object anyway.
+  const gitDir = execSync('git rev-parse --git-dir', { encoding: 'utf-8' }).trim();
   const checks = [
     path.join(gitDir, 'rebase-merge'),
     path.join(gitDir, 'rebase-apply'),
@@ -54,13 +74,13 @@ try {
   ];
   if (checks.some(p => existsSync(p))) process.exit(0);
 
-  const changed = execSync('git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null', { encoding: 'utf-8' }).trim();
+  const changed = execSync('git diff --name-only HEAD~1 HEAD || git diff --name-only HEAD', { encoding: 'utf-8' }).trim();
   if (!changed) process.exit(0);
 
   const codeExts = new Set(['.py', '.js', '.ts', '.tsx', '.jsx', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp']);
   const hasCode = changed.split(/\\r?\\n/).some(f => codeExts.has(path.extname(f)));
   if (hasCode && existsSync('.graphify')) {
-    execSync('nodesify-graphify update .', { stdio: 'inherit' });
+    runGraphifyUpdate();
   }
 } catch {}
 // nodesify-graphify-hook-end
@@ -69,17 +89,18 @@ const POST_CHECKOUT_SCRIPT = `// nodesify-graphify-checkout-hook-start
 const { execSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
-
+${UPDATE_HELPER}
 const branchSwitch = process.argv[3];
 if (branchSwitch !== '1') process.exit(0);
 if (!existsSync('.graphify')) process.exit(0);
 
 try {
-  const gitDir = execSync('git rev-parse --git-dir 2>/dev/null', { encoding: 'utf-8' }).trim();
+  // No shell redirects — see the note in the post-commit script.
+  const gitDir = execSync('git rev-parse --git-dir', { encoding: 'utf-8' }).trim();
   if (existsSync(path.join(gitDir, 'rebase-merge')) || existsSync(path.join(gitDir, 'rebase-apply'))) process.exit(0);
 
   console.log('[nodesify-graphify] Branch switched - rebuilding knowledge graph...');
-  execSync('nodesify-graphify update .', { stdio: 'inherit' });
+  runGraphifyUpdate();
 } catch {}
 // nodesify-graphify-checkout-hook-end
 `;
@@ -159,6 +180,17 @@ function installHook(hooksDir, def) {
                 : `${def.hookName}: installed`;
         }
         if (content.includes(def.startMarker)) {
+            // Refresh the script body when it predates the current template
+            // (sentinel: runGraphifyUpdate resolver). Without this, fixed
+            // templates would never reach already-installed hooks.
+            if (!content.includes("GRAPHIFY_HOOK_VERSION = '2'")) {
+                content = stripMarkerSection(content, def.startMarker, def.endMarker);
+                const refreshed = content.trim() === '' || SHEBANGS.includes(content.trim())
+                    ? '#!/usr/bin/env node\n\n' + def.script
+                    : content.trimEnd() + '\n\n' + def.script;
+                fs.writeFileSync(hookPath, refreshed, 'utf-8');
+                return `${def.hookName}: updated script to current version`;
+            }
             if (hadLegacy) {
                 fs.writeFileSync(hookPath, content, 'utf-8');
                 return `${def.hookName}: already installed (stale legacy section removed)`;

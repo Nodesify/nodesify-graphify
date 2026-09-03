@@ -27,7 +27,7 @@ Read `.graphify/graph_report.md` and summarize: hub nodes, communities, surprisi
 The `.kiro/steering/graphify.md` steering file enforces graph usage. You MUST:
 
 1. Read `.graphify/graph_report.md` before searching files
-2. Use `nodesify-graphify query`, `nodesify-graphify path`, or `nodesify-graphify explain` for cross-module questions
+2. Use `nodesify-graphify query`, `path` (add `--directed` for call direction), `explain`, or `affected` for cross-module questions
 3. Only use native file tools AFTER the graph identified the exact files
 
 ## After editing code

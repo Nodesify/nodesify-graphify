@@ -4,19 +4,27 @@ Rust rewrite of graphify — turns any folder into a queryable knowledge graph. 
 
 ### Architecture
 
-Rust workspace (8 crates) + Node.js CLI:
+Rust workspace (14 crates) + Node.js CLI:
 
-- `crates/graphify-core` — shared types (`FileType`, `Relation`, `Confidence`), `GraphifyError`, SQLite schema
+- `crates/graphify-core` — types (`FileType`, `GraphStats`), `GraphifyError`, SQLite schema + migrations, path validation, sanitization, sensitive-path denylist
+- `crates/graphify-paths` — path normalization and `.graphify` directory management
 - `crates/graphify-detect` — file discovery, classification, incremental change detection via SHA-256 manifest
-- `crates/graphify-extract` — tree-sitter AST extraction (21 languages), per-language configs in `src/langs/`
-- `crates/graphify-build` — merge extractions into SQLite graph with deduplication
-- `crates/graphify-cluster` — label propagation community detection (petgraph)
-- `crates/graphify-analyze` — god nodes, surprising cross-community connections, suggested questions
+- `crates/graphify-extract` — tree-sitter AST extraction (21 languages), per-language configs in `src/langs/`. Extraction schema types (`Extraction`, `ExtractedNode`, `ExtractedEdge`) in `src/schema.rs`.
+- `crates/graphify-build` — merge extractions into SQLite graph; entity dedup (MinHash/LSH blocking + Jaro-Winkler verify) in `dedup.rs`
+- `crates/graphify-cluster` — deterministic label propagation community detection (petgraph), hub labels, cohesion, modularity
+- `crates/graphify-analyze` — god nodes (call stubs excluded), ranked surprising cross-community connections, blast radius (`affected.rs`, reverse reachability)
+- `crates/graphify-query` — query engine: BFS/DFS (optionally directed), shortest path, explain; token-based node scoring; per-path graph cache
+- `crates/graphify-mcp` — MCP stdio server exposing the graph to AI agents
 - `crates/graphify-report` — markdown report generation (`graph_report.md`)
-- `crates/graphify-napi` — napi-rs bindings, pipeline orchestration (`pipeline.rs`), query engine (`query.rs` — BFS/DFS, shortest path, explain)
+- `crates/graphify-semantic` — LLM semantic extraction, multi-backend (Claude / OpenAI-compatible / Gemini) with vision, chunking, and output validation
+- `crates/graphify-ingest` — URL ingestion (arXiv/tweet/webpage/image) with SSRF protection
+- `crates/graphify-pdf` — PDF text extraction
+- `crates/graphify-napi` — napi-rs bindings, pipeline orchestration (`pipeline.rs`), merge/diff (`merge.rs`), JSON/HTML/GraphML/tree export
 - `packages/graphify-cli` — Node.js CLI (commander.js), thin wrapper over napi bindings
 
-Pipeline: `detect() → extract() → build() → cluster() → analyze() → report()`
+Pipeline: `detect() → extract() → enrich_with_semantics() → build() → dedup_nodes() → cluster() → analyze() → report()`
+
+The semantic enrichment step is optional — it activates when a backend is configured (`GRAPHIFY_LLM_BACKEND`, or `GRAPHIFY_LLM_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`), extracting topics, concepts, and entities (including from images via vision). Cache misses are extracted concurrently by a worker pool; `GRAPHIFY_LLM_CONCURRENCY` (1–8, default 4) controls the worker count.
 
 Persistence: single `.graphify/db.sqlite` (extraction cache, file manifest, nodes/edges, pipeline runs, query history).
 
@@ -27,12 +35,14 @@ nodesify-graphify run <path>                                    # Full pipeline
 nodesify-graphify update <path>                                 # Incremental rebuild
 nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
-nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
-nodesify-graphify path <A> <B> [--graph .]                      # Shortest path
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--detail high] [--cursor N] [--graph .]  # BFS/DFS traversal
+nodesify-graphify path <A> <B> [--directed] [--graph .]                      # Shortest path
 nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
+nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
+nodesify-graphify map [--budget 2000] [--graph .]    # PageRank-ranked repo map with top symbols
 nodesify-graphify stats [--graph .]                             # Graph statistics
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs

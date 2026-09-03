@@ -6,6 +6,9 @@
  */
 
 import { Command } from 'commander';
+import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 let passed = 0;
 let failed = 0;
@@ -37,6 +40,8 @@ function createProgram(): Command {
     .description('Run the full pipeline on a directory')
     .argument('<path>', 'Directory to analyze')
     .option('--no-dedup', 'Skip near-duplicate node merging')
+    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
     .action(() => {});
 
   program
@@ -44,6 +49,8 @@ function createProgram(): Command {
     .description('Run incremental AST-only rebuild')
     .argument('<path>', 'Directory to update')
     .option('--no-dedup', 'Skip near-duplicate node merging')
+    .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
+    .option('--model <name>', 'Semantic LLM model name (backend-specific)')
     .action(() => {});
 
   program
@@ -84,6 +91,15 @@ function createProgram(): Command {
     .option('--graph <path>', 'Path to project root', '.')
     .option('--depth <n>', 'Maximum hops to traverse', '2')
     .option('--relation <type>', 'Only follow one relation (e.g. calls, imports, uses)')
+    .action(() => {});
+
+  program
+    .command('add')
+    .description('Fetch a URL (arXiv paper, tweet, webpage, image, PDF) into ./raw and update the graph')
+    .argument('<url>', 'URL to fetch')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--author <name>', 'Author recorded in the saved metadata')
+    .option('--contributor <name>', 'Contributor recorded in the saved metadata')
     .action(() => {});
 
   program
@@ -165,7 +181,7 @@ for (const cmd of requiredCommands) {
 }
 
 // Test 2: New commands are registered
-const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs'];
+const newCommands = ['cluster-only', 'merge', 'diff', 'history', 'affected', 'mcp', 'tree', 'prs', 'add'];
 for (const cmd of newCommands) {
   assert(commandNames.includes(cmd), `New command "${cmd}" should be registered`);
 }
@@ -229,6 +245,20 @@ assert(
   commandNames.length >= requiredCommands.length + newCommands.length,
   `Should have at least ${requiredCommands.length + newCommands.length} commands, got ${commandNames.length}`
 );
+
+// Test 10: the real entrypoint loads (catches duplicate-flag registration
+// that the mirrored program above cannot see)
+const entry = join(__dirname, '..', '..', 'dist', 'index.js');
+if (existsSync(entry)) {
+  try {
+    execSync(`node "${entry}" --help`, { stdio: 'pipe', encoding: 'utf-8' });
+    assert(true, 'real entrypoint (dist/index.js) loads');
+  } catch (e: any) {
+    assert(false, `real entrypoint should load: ${String(e.message).slice(0, 140)}`);
+  }
+} else {
+  console.log('(dist not built - skipping entrypoint load check)');
+}
 
 // Summary
 console.log(`\n${passed} passed, ${failed} failed`);
