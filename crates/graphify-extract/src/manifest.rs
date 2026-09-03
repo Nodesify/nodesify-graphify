@@ -47,6 +47,7 @@ impl ManifestBuilder {
                 source_file: self.file_path.clone(),
                 source_line: Some(1),
                 docstring: docstring.map(|s| s.to_string()),
+                signature: None,
                 node_type: "package".to_string(),
             });
         }

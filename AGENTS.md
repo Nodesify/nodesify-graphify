@@ -35,13 +35,14 @@ nodesify-graphify run <path>                                    # Full pipeline
 nodesify-graphify update <path>                                 # Incremental rebuild
 nodesify-graphify watch <path> [--debounce 3000]                # File watcher
 nodesify-graphify explain <node> [--graph .]                    # Node explanation + connections
-nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--graph .]  # BFS/DFS traversal
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--detail high] [--cursor N] [--graph .]  # BFS/DFS traversal
 nodesify-graphify path <A> <B> [--directed] [--graph .]                      # Shortest path
 nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
 nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
+nodesify-graphify map [--budget 2000] [--graph .]    # PageRank-ranked repo map with top symbols
 nodesify-graphify stats [--graph .]                             # Graph statistics
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs

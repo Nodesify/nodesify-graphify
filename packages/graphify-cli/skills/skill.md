@@ -117,6 +117,8 @@ Options:
 - `--depth <n>` — traversal depth (default: 2)
 - `--budget <n>` — token budget for output (default: 2000)
 - `--directed` — follow edges only in their stored direction (caller -> callee, importer -> module)
+- `--detail high` — keep only EXTRACTED/DECLARED facts, dropping inferred/semantic edges
+- `--cursor <n>` — continuation token from a previous truncated query
 - `--graph <path>` — project root (default: `.`)
 
 ### `nodesify-graphify explain <node> [options]`
@@ -145,9 +147,17 @@ nodesify-graphify affected "UserService" --depth 3
 nodesify-graphify affected "UserService" --relation calls
 ```
 
+### `nodesify-graphify map [options]`
+
+Aider-style repo map: files ranked by PageRank over the reference graph, with each file's most-connected symbols. Best first command when orienting on a codebase.
+
+```
+nodesify-graphify map --budget 2000
+```
+
 ### MCP server
 
-`nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.
+`nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph` (supports `cursor` continuation and `detail` tiers), `repo_map`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.
 
 
 ### `nodesify-graphify stats [options]`

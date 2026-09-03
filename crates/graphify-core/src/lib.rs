@@ -10,7 +10,7 @@ pub mod types;
 /// cache). Bump when extraction output changes shape (e.g. the id scheme) —
 /// all files then hash differently, forcing one clean full re-extraction on
 /// upgrade instead of mixing old and new node ids in one graph.
-pub const EXTRACTION_HASH_VERSION: &str = "v2";
+pub const EXTRACTION_HASH_VERSION: &str = "v3";
 
 pub use db::{open_db, open_db_in_memory};
 pub use error::{GraphifyError, Result};

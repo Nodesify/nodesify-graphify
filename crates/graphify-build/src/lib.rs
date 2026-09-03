@@ -75,13 +75,14 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
             // the same id (stubs are created speculatively by edges and may
             // land before the definition's own extraction is processed).
             tx.execute(
-                "INSERT INTO nodes (id, label, file_type, source_file, source_line, docstring) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO nodes (id, label, file_type, source_file, source_line, docstring, signature) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(id) DO UPDATE SET
                    label = excluded.label,
                    file_type = excluded.file_type,
                    source_file = excluded.source_file,
                    source_line = excluded.source_line,
-                   docstring = excluded.docstring
+                   docstring = excluded.docstring,
+                   signature = excluded.signature
                  WHERE nodes.file_type = 'stub'",
                 rusqlite::params![
                     node.id,
@@ -90,6 +91,10 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                     normalize(&node.source_file),
                     node.source_line,
                     node.docstring.as_deref().map(graphify_core::sanitize_docstring),
+                    node
+                        .signature
+                        .as_deref()
+                        .map(graphify_core::sanitize_docstring),
                 ],
             )?;
             nodes_added += 1;
@@ -177,6 +182,7 @@ mod tests {
                     source_file: PathBuf::from(path),
                     source_line: Some(1),
                     docstring: None,
+                    signature: None,
                     node_type: "function".into(),
                 })
                 .collect(),
@@ -284,6 +290,7 @@ mod tests {
                 source_file: PathBuf::from("a.py"),
                 source_line: Some(1),
                 docstring: None,
+                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -301,6 +308,7 @@ mod tests {
                 source_file: PathBuf::from("b.py"),
                 source_line: Some(5),
                 docstring: None,
+                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -338,6 +346,7 @@ mod tests {
                 source_file: PathBuf::from("a.py"),
                 source_line: Some(1),
                 docstring: None,
+                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![],
@@ -352,6 +361,7 @@ mod tests {
                 source_file: PathBuf::from("b.py"),
                 source_line: Some(1),
                 docstring: None,
+                signature: None,
                 node_type: "function".into(),
             }],
             edges: vec![ExtractedEdge {

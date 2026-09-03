@@ -31,6 +31,14 @@ pub struct QueryResultJs {
     pub text: String,
     pub node_count: i64,
     pub edge_count: i64,
+    /// Some when the node list was truncated - pass back as `cursor`.
+    pub next_cursor: Option<i64>,
+}
+
+#[napi(object)]
+pub struct RepoMapJs {
+    pub text: String,
+    pub files_shown: i64,
 }
 
 #[napi(object)]
@@ -95,6 +103,15 @@ pub struct AffectedResultJs {
 }
 
 // ---- napi-exposed functions ----
+
+/// Fidelity tier: "high" keeps only EXTRACTED/DECLARED facts (strength
+/// >= 0.9); anything else keeps all facts.
+fn min_strength_for(detail: &Option<String>) -> f64 {
+    match detail.as_deref().map(|s| s.to_lowercase()).as_deref() {
+        Some("high") => 0.9,
+        _ => 0.0,
+    }
+}
 
 #[napi]
 pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
@@ -192,6 +209,7 @@ pub fn export_graphml_cmd(root: String, out_path: String) -> napi::Result<()> {
 }
 
 #[napi]
+#[allow(clippy::too_many_arguments)]
 pub fn query_graph(
     root: String,
     question: String,
@@ -199,6 +217,8 @@ pub fn query_graph(
     depth: i64,
     budget: i64,
     directed: Option<bool>,
+    detail: Option<String>,
+    cursor: Option<i64>,
 ) -> napi::Result<QueryResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
@@ -208,7 +228,7 @@ pub fn query_graph(
     )?);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let (text, node_count, edge_count) = query::query_graph(
+    let (text, node_count, edge_count, next_cursor) = query::query_graph(
         &db,
         &db_path_str,
         &question,
@@ -216,12 +236,33 @@ pub fn query_graph(
         depth as usize,
         budget,
         directed.unwrap_or(false),
+        min_strength_for(&detail),
+        cursor.unwrap_or(0).max(0) as usize,
     )
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(QueryResultJs {
         text,
         node_count: node_count as i64,
         edge_count: edge_count as i64,
+        next_cursor: next_cursor.map(|c| c as i64),
+    })
+}
+
+#[napi]
+pub fn repo_map(root: String, budget: i64, detail: Option<String>) -> napi::Result<RepoMapJs> {
+    let root_pb = PathBuf::from(&root);
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let (text, files_shown) = query::repo_map(&db, &db_path_str, budget, min_strength_for(&detail))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(RepoMapJs {
+        text,
+        files_shown: files_shown as i64,
     })
 }
 
@@ -231,6 +272,7 @@ pub fn find_path(
     source: String,
     target: String,
     directed: Option<bool>,
+    detail: Option<String>,
 ) -> napi::Result<PathResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
@@ -246,6 +288,7 @@ pub fn find_path(
         &source,
         &target,
         directed.unwrap_or(false),
+        min_strength_for(&detail),
     )
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(PathResultJs {
@@ -520,8 +563,8 @@ mod tests {
     fn query_graph_empty_db_returns_no_nodes() {
         let db = open_db_in_memory().unwrap();
         let key = format!(":memory:empty_{}", std::process::id());
-        let (text, nodes, edges) =
-            query::query_graph(&db, &key, "anything", "bfs", 3, 2000, false).unwrap();
+        let (text, nodes, edges, _) =
+            query::query_graph(&db, &key, "anything", "bfs", 3, 2000, false, 0.0, 0).unwrap();
         assert_eq!(text, "No nodes in graph.");
         assert_eq!(nodes, 0);
         assert_eq!(edges, 0);
@@ -532,8 +575,8 @@ mod tests {
         let db = open_db_in_memory().unwrap();
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatch_{}", std::process::id());
-        let (text, nodes, _) =
-            query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000, false).unwrap();
+        let (text, nodes, _, _) =
+            query::query_graph(&db, &key, "xyznonexistent", "bfs", 3, 2000, false, 0.0, 0).unwrap();
         assert_eq!(text, "No matching nodes found.");
         assert_eq!(nodes, 0);
     }
@@ -551,8 +594,8 @@ mod tests {
             &[("n1", "n2", "calls"), ("n2", "n3", "imports")],
         );
         let key = format!(":memory:bfs_{}", std::process::id());
-        let (text, nodes, _edges) =
-            query::query_graph(&db, &key, "Alpha", "bfs", 2, 2000, false).unwrap();
+        let (text, nodes, _edges, _) =
+            query::query_graph(&db, &key, "Alpha", "bfs", 2, 2000, false, 0.0, 0).unwrap();
         assert!(nodes > 0);
         assert!(text.contains("Alpha"));
     }
@@ -566,8 +609,8 @@ mod tests {
             &[("n1", "n2", "calls")],
         );
         let key = format!(":memory:dfs_{}", std::process::id());
-        let (text, nodes, _) =
-            query::query_graph(&db, &key, "Alpha", "dfs", 2, 2000, false).unwrap();
+        let (text, nodes, _, _) =
+            query::query_graph(&db, &key, "Alpha", "dfs", 2, 2000, false, 0.0, 0).unwrap();
         assert!(nodes > 0);
         assert!(text.contains("Alpha"));
     }
@@ -586,7 +629,7 @@ mod tests {
         );
         let key = format!(":memory:path_{}", std::process::id());
         let (found, hops, text) =
-            query::find_shortest_path(&db, &key, "Alpha", "Gamma", false).unwrap();
+            query::find_shortest_path(&db, &key, "Alpha", "Gamma", false, 0.0).unwrap();
         assert!(found);
         assert_eq!(hops, 2);
         assert!(text.contains("Alpha"));
@@ -603,7 +646,7 @@ mod tests {
         );
         let key = format!(":memory:nopath_{}", std::process::id());
         let (found, hops, _) =
-            query::find_shortest_path(&db, &key, "Alpha", "Beta", false).unwrap();
+            query::find_shortest_path(&db, &key, "Alpha", "Beta", false, 0.0).unwrap();
         assert!(!found);
         assert_eq!(hops, 0);
     }
@@ -614,7 +657,7 @@ mod tests {
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:nomatchpath_{}", std::process::id());
         let (found, _, text) =
-            query::find_shortest_path(&db, &key, "Alpha", "Nonexistent", false).unwrap();
+            query::find_shortest_path(&db, &key, "Alpha", "Nonexistent", false, 0.0).unwrap();
         assert!(!found);
         assert!(text.contains("No matching node"));
     }
@@ -625,7 +668,7 @@ mod tests {
         seed_graph(&db, &[("n1", "Alpha", "f.py", None)], &[]);
         let key = format!(":memory:same_{}", std::process::id());
         let (found, hops, _) =
-            query::find_shortest_path(&db, &key, "Alpha", "Alpha", false).unwrap();
+            query::find_shortest_path(&db, &key, "Alpha", "Alpha", false, 0.0).unwrap();
         assert!(found);
         assert_eq!(hops, 0);
     }

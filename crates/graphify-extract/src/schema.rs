@@ -8,6 +8,12 @@ pub struct ExtractedNode {
     pub source_line: Option<u32>,
     pub docstring: Option<String>,
     pub node_type: String,
+    /// Source text of the item up to its body (e.g. a function signature),
+    /// whitespace-collapsed. Lets agents see WHAT a symbol is without
+    /// opening the file. Absent for nodes without a meaningful signature
+    /// (documents, stubs).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

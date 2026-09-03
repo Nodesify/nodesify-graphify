@@ -363,4 +363,39 @@ mod tests {
             rationale_edges.len()
         );
     }
+
+    #[test]
+    fn signatures_are_captured() {
+        let dir = tempfile::tempdir().unwrap();
+        let py = dir.path().join("svc.py");
+        fs::write(
+            &py,
+            "
+class Greeter:
+    \"\"\"Says hello\"\"\"
+    def greet(self, name):
+        print(name)
+",
+        )
+        .unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[py], &db).unwrap();
+        let greet = results[0]
+            .nodes
+            .iter()
+            .find(|n| n.label == "greet()")
+            .expect("greet node");
+        let sig = greet.signature.as_deref().expect("signature captured");
+        assert!(sig.contains("def greet"), "got: {sig}");
+        assert!(
+            !sig.contains("print"),
+            "signature must exclude the body, got: {sig}"
+        );
+        let class = results[0]
+            .nodes
+            .iter()
+            .find(|n| n.label == "Greeter")
+            .expect("class node");
+        assert!(class.signature.is_some());
+    }
 }

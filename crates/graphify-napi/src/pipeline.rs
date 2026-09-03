@@ -189,6 +189,7 @@ fn enrich_with_semantics(
                 source_file: meta.path.clone(),
                 source_line: None,
                 docstring: Some(sem_node.summary.clone()),
+                signature: None,
                 node_type: sem_node.node_type.clone(),
             });
         }
@@ -410,7 +411,7 @@ fn write_report(graphify_dir: &Path, report: &str) -> graphify_core::Result<()> 
 pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()> {
     let mut nodes = Vec::new();
     let mut stmt = db.prepare(
-        "SELECT id, label, file_type, source_file, source_line, docstring, community FROM nodes",
+        "SELECT id, label, file_type, source_file, source_line, docstring, community, signature FROM nodes",
     )?;
     #[allow(clippy::type_complexity)]
     let node_rows: Vec<(
@@ -421,6 +422,7 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
         Option<i64>,
         Option<String>,
         Option<i64>,
+        Option<String>,
     )> = stmt
         .query_map([], |row| {
             Ok((
@@ -431,12 +433,13 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
                 row.get(4)?,
                 row.get(5)?,
                 row.get(6)?,
+                row.get(7)?,
             ))
         })?
         .filter_map(|r| r.ok())
         .collect();
 
-    for (id, label, ft, sf, line, doc, comm) in &node_rows {
+    for (id, label, ft, sf, line, doc, comm, sig) in &node_rows {
         nodes.push(serde_json::json!({
             "id": id,
             "label": label,
@@ -445,6 +448,7 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
             "source_line": line,
             "docstring": doc,
             "community": comm,
+            "signature": sig,
         }));
     }
 

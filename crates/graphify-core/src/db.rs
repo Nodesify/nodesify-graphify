@@ -97,6 +97,16 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    if version < 3 {
+        // v3: node signatures (source text up to the body) for token-cheap
+        // "what is this symbol" answers. Older graphs get NULL signatures
+        // until the next full re-extraction.
+        conn.execute_batch("ALTER TABLE nodes ADD COLUMN signature TEXT;")?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '3')",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -183,5 +193,29 @@ mod tests {
             )
             .unwrap();
         assert_eq!(label, "Foo");
+    }
+
+    #[test]
+    fn schema_v3_has_signature_column() {
+        let conn = open_db_in_memory().unwrap();
+        let version: String = conn
+            .query_row(
+                "SELECT value FROM _meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "3");
+        conn.execute(
+            "INSERT INTO nodes (id, label, file_type, source_file, signature) VALUES ('a', 'A', 'code', 'f.rs', 'fn a()')",
+            [],
+        )
+        .unwrap();
+        let sig: Option<String> = conn
+            .query_row("SELECT signature FROM nodes WHERE id = 'a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(sig.as_deref(), Some("fn a()"));
     }
 }

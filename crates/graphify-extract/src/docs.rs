@@ -38,6 +38,7 @@ pub(crate) fn extract_markdown_from_string(
         source_file: path.to_path_buf(),
         source_line: None,
         docstring: None,
+        signature: None,
         node_type: "document".to_string(),
     });
 
@@ -62,6 +63,7 @@ pub(crate) fn extract_markdown_from_string(
                 source_file: path.to_path_buf(),
                 source_line: Some(line_no as u32 + 1),
                 docstring: None,
+                signature: None,
                 node_type: "section".to_string(),
             });
 
@@ -152,6 +154,7 @@ pub(crate) fn extract_text_file(path: &Path, language: &str) -> Result<Extractio
         source_file: path.to_path_buf(),
         source_line: None,
         docstring: None,
+        signature: None,
         node_type: "document".to_string(),
     });
 
@@ -172,6 +175,7 @@ pub(crate) fn extract_text_file(path: &Path, language: &str) -> Result<Extractio
                     source_file: path.to_path_buf(),
                     source_line: Some(start_line),
                     docstring: None,
+                    signature: None,
                     node_type: "section".to_string(),
                 });
                 edges.push(ExtractedEdge {
@@ -201,6 +205,7 @@ pub(crate) fn extract_text_file(path: &Path, language: &str) -> Result<Extractio
             source_file: path.to_path_buf(),
             source_line: Some(start_line),
             docstring: None,
+            signature: None,
             node_type: "section".to_string(),
         });
         edges.push(ExtractedEdge {
@@ -252,6 +257,7 @@ pub(crate) fn extract_rst(path: &Path) -> Result<Extraction, GraphifyError> {
         source_file: path.to_path_buf(),
         source_line: None,
         docstring: None,
+        signature: None,
         node_type: "document".to_string(),
     });
 
@@ -287,6 +293,7 @@ pub(crate) fn extract_rst(path: &Path) -> Result<Extraction, GraphifyError> {
                 source_file: path.to_path_buf(),
                 source_line: Some(i as u32 + 1),
                 docstring: None,
+                signature: None,
                 node_type: "section".to_string(),
             });
 
