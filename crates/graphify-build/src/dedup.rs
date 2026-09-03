@@ -301,22 +301,24 @@ fn apply_renames(db: &Connection, rename: &HashMap<String, String>) -> Result<()
             .flatten()
             .collect();
         drop(stmt);
+        let mut update = tx.prepare("UPDATE edges SET source = ?1, target = ?2 WHERE id = ?3")?;
+        let mut delete = tx.prepare("DELETE FROM edges WHERE id = ?1")?;
         for (id, source, target) in edges {
             let new_source = rename.get(&source).unwrap_or(&source).clone();
             let new_target = rename.get(&target).unwrap_or(&target).clone();
             if new_source == new_target {
-                tx.execute("DELETE FROM edges WHERE id = ?1", rusqlite::params![id])?;
+                delete.execute(rusqlite::params![id])?;
             } else if new_source != source || new_target != target {
-                tx.execute(
-                    "UPDATE edges SET source = ?1, target = ?2 WHERE id = ?3",
-                    rusqlite::params![new_source, new_target, id],
-                )?;
+                update.execute(rusqlite::params![new_source, new_target, id])?;
             }
         }
     }
     let losers: Vec<&String> = rename.keys().collect();
-    for loser in losers {
-        tx.execute("DELETE FROM nodes WHERE id = ?1", rusqlite::params![loser])?;
+    {
+        let mut delete_node = tx.prepare("DELETE FROM nodes WHERE id = ?1")?;
+        for loser in losers {
+            delete_node.execute(rusqlite::params![loser])?;
+        }
     }
     tx.commit()?;
     Ok(())

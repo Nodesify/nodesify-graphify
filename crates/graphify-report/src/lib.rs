@@ -48,10 +48,23 @@ pub fn generate_report(
 
     let mut report = String::new();
     report.push_str("# Graph Report\n\n");
-    report.push_str(&format!(
-        "**Nodes:** {} | **Edges:** {} | **Communities:** {}\n\n",
-        node_count, edge_count, community_count
-    ));
+    let modularity: Option<f64> = db
+        .query_row(
+            "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    match modularity {
+        Some(q) => report.push_str(&format!(
+            "**Nodes:** {} | **Edges:** {} | **Communities:** {} | **Modularity:** {:.3}\n\n",
+            node_count, edge_count, community_count, q
+        )),
+        None => report.push_str(&format!(
+            "**Nodes:** {} | **Edges:** {} | **Communities:** {}\n\n",
+            node_count, edge_count, community_count
+        )),
+    }
 
     report.push_str("## Hub Nodes (God Nodes)\n\n");
     if analysis.god_nodes.is_empty() {
@@ -72,14 +85,19 @@ pub fn generate_report(
     if analysis.surprising_connections.is_empty() {
         report.push_str("No cross-community connections found.\n\n");
     } else {
+        report.push_str(&format!(
+            "Top {} of the cross-community edges, ranked by novelty (bigger, more cohesive communities joined by fewer edges score higher):\n\n",
+            analysis.surprising_connections.len()
+        ));
         for edge in &analysis.surprising_connections {
             report.push_str(&format!(
-                "- **{}** -> **{}** ({}) [{} -> {}]\n",
+                "- **{}** -> **{}** ({}) [{} -> {}] (score: {:.2})\n",
                 edge.source_label,
                 edge.target_label,
                 edge.relation,
                 label_of(edge.source_community),
-                label_of(edge.target_community)
+                label_of(edge.target_community),
+                edge.score
             ));
         }
         report.push('\n');
@@ -128,6 +146,7 @@ mod tests {
                 label: "Alpha".into(),
                 degree: 1,
                 community: Some(0),
+                is_stub: false,
             }],
             surprising_connections: vec![SurprisingEdge {
                 source: "a".into(),
@@ -137,6 +156,7 @@ mod tests {
                 relation: "calls".into(),
                 source_community: Some(0),
                 target_community: Some(1),
+                score: 2.5,
             }],
             suggested_questions: vec!["Why does Alpha have so many connections?".into()],
         };

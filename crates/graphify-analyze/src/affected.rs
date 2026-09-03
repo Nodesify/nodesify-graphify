@@ -164,8 +164,13 @@ pub fn affected(
         None => IMPACT_RELATIONS.iter().copied().collect(),
     };
 
-    // (source, target, relation, edge source_file)
-    let mut edges: Vec<(String, String, String, String)> = Vec::new();
+    // Reverse adjacency: target → [(source, relation, edge source_file)].
+    // Built once so the BFS is O(V + E) instead of rescanning every edge
+    // per frontier node.
+    let mut incoming: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
+    // Members of the seed (seed --contains/method--> member), for the
+    // one-hop seed expansion below.
+    let mut seed_members: Vec<String> = Vec::new();
     {
         let mut stmt = db.prepare("SELECT source, target, relation, source_file FROM edges")?;
         let rows = stmt.query_map([], |r| {
@@ -176,8 +181,11 @@ pub fn affected(
                 r.get::<_, String>(3)?,
             ))
         })?;
-        for e in rows.flatten() {
-            edges.push(e);
+        for (src, tgt, rel, via) in rows.flatten() {
+            if src == seed && (rel == "contains" || rel == "method") {
+                seed_members.push(tgt.clone());
+            }
+            incoming.entry(tgt).or_default().push((src, rel, via));
         }
     }
 
@@ -202,9 +210,9 @@ pub fn affected(
         }
     }
 
-    for (src, tgt, rel, _) in &edges {
-        if src == &seed && (rel == "contains" || rel == "method") && visited.insert(tgt.clone()) {
-            frontier.push_back((tgt.clone(), 0));
+    for tgt in seed_members {
+        if visited.insert(tgt.clone()) {
+            frontier.push_back((tgt, 0));
         }
     }
 
@@ -213,8 +221,9 @@ pub fn affected(
         if d >= depth {
             continue;
         }
-        for (src, tgt, rel, via) in &edges {
-            if tgt != &current || !allowed.contains(rel.as_str()) || !visited.insert(src.clone()) {
+        let empty = Vec::new();
+        for (src, rel, via) in incoming.get(&current).unwrap_or(&empty) {
+            if !allowed.contains(rel.as_str()) || !visited.insert(src.clone()) {
                 continue;
             }
             let label = nodes

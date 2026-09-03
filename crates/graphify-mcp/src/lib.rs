@@ -22,7 +22,9 @@ fn tools() -> Value {
             "question": {"type": "string"},
             "mode": {"type": "string", "enum": ["bfs", "dfs"], "default": "bfs"},
             "depth": {"type": "integer", "default": 2},
-            "budget": {"type": "integer", "default": 2000}},
+            "budget": {"type": "integer", "default": 2000},
+            "directed": {"type": "boolean", "default": false,
+                "description": "Follow edges only in their stored direction (caller -> callee, importer -> module) instead of both ways."}},
             "required": ["question"]}},
         {"name": "explain", "description": "Explain a node: its metadata and up to 20 neighbors with relations and confidence.",
          "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}}, "required": ["node"]}},
@@ -31,7 +33,10 @@ fn tools() -> Value {
             "node": {"type": "string"}, "relation": {"type": "string"}}, "required": ["node"]}},
         {"name": "shortest_path", "description": "Shortest path between two nodes, with relations per hop.",
          "inputSchema": {"type": "object", "properties": {
-            "source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"]}},
+            "source": {"type": "string"}, "target": {"type": "string"},
+            "directed": {"type": "boolean", "default": false,
+                "description": "Follow edges only in their stored direction."}},
+            "required": ["source", "target"]}},
         {"name": "affected", "description": "Blast radius: everything impacted by changing a node (reverse reachability over calls/imports/uses).",
          "inputSchema": {"type": "object", "properties": {
             "node": {"type": "string"}, "depth": {"type": "integer", "default": 2},
@@ -59,6 +64,10 @@ fn str_arg(args: &Value, key: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn bool_arg(args: &Value, key: &str) -> Option<bool> {
+    args.get(key).and_then(|v| v.as_bool())
+}
+
 fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match name {
         "query_graph" => {
@@ -66,6 +75,7 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let mode = str_arg(args, "mode").unwrap_or_else(|| "bfs".into());
             let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
             let budget = args.get("budget").and_then(|v| v.as_u64()).unwrap_or(2000) as usize;
+            let directed = bool_arg(args, "directed").unwrap_or(false);
             graphify_query::query_graph(
                 db,
                 db_path,
@@ -73,6 +83,7 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
                 &mode,
                 depth as usize,
                 budget as i64,
+                directed,
             )
             .map(|(text, n, e)| text_result(format!("{text}\n\n({n} nodes, {e} edges)")))
         }
@@ -125,7 +136,8 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
         "shortest_path" => {
             let source = str_arg(args, "source").unwrap_or_default();
             let target = str_arg(args, "target").unwrap_or_default();
-            graphify_query::find_shortest_path(db, db_path, &source, &target).map(
+            let directed = bool_arg(args, "directed").unwrap_or(false);
+            graphify_query::find_shortest_path(db, db_path, &source, &target, directed).map(
                 |(found, hops, text)| {
                     text_result(format!("{text}\n\n(found: {found}, hops: {hops})"))
                 },

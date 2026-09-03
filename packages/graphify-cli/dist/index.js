@@ -65,6 +65,7 @@ program
     .option('--dfs', 'Use depth-first search instead of breadth-first')
     .option('--depth <n>', 'Traversal depth', '2')
     .option('--budget <n>', 'Token budget for output', '2000')
+    .option('--directed', 'Follow edges only in their stored direction (caller -> callee)')
     .action(query_1.queryCommand);
 program
     .command('path')
@@ -72,6 +73,7 @@ program
     .argument('<source>', 'Source node label')
     .argument('<target>', 'Target node label')
     .option('--graph <path>', 'Path to project root', '.')
+    .option('--directed', 'Follow edges only in their stored direction (caller -> callee)')
     .action(path_1.pathCommand);
 program
     .command('affected')
