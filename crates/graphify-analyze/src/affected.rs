@@ -90,16 +90,19 @@ fn resolve_seed(db: &Connection, query: &str) -> graphify_core::Result<String> {
     }
 
     let lower = query.to_lowercase();
-    let mut stmt = db.prepare("SELECT id FROM nodes WHERE lower(label) = ?1")?;
-    let candidates: Vec<String> = stmt
-        .query_map(rusqlite::params![lower], |r| r.get::<_, String>(0))?
+    let mut stmt = db.prepare("SELECT id, source_file FROM nodes WHERE lower(label) = ?1")?;
+    let candidates: Vec<(String, String)> = stmt
+        .query_map(rusqlite::params![lower], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .filter_map(|r| r.ok())
         .collect();
     match candidates.len() {
-        1 => return Ok(candidates[0].clone()),
+        1 => return Ok(candidates[0].0.clone()),
         n if n > 1 => {
             return Err(GraphifyError::Graph(format!(
-                "ambiguous node '{query}' — {n} nodes share that label; use the node id"
+                "ambiguous node '{query}' — {n} nodes share that label; use one of: {}",
+                describe_candidates(&candidates)
             )))
         }
         _ => {}
@@ -108,18 +111,38 @@ fn resolve_seed(db: &Connection, query: &str) -> graphify_core::Result<String> {
     // Source-file suffix: "src/lib.rs" or "lib.rs" should find the file node.
     let norm_query = query.replace('\\', "/");
     let suffix = format!("%{}", norm_query.trim_start_matches('/'));
-    let mut stmt = db.prepare("SELECT id FROM nodes WHERE source_file LIKE ?1")?;
-    let candidates: Vec<String> = stmt
-        .query_map(rusqlite::params![suffix], |r| r.get::<_, String>(0))?
+    let mut stmt = db.prepare("SELECT id, source_file FROM nodes WHERE source_file LIKE ?1")?;
+    let candidates: Vec<(String, String)> = stmt
+        .query_map(rusqlite::params![suffix], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .filter_map(|r| r.ok())
         .collect();
     match candidates.len() {
-        1 => Ok(candidates[0].clone()),
+        1 => Ok(candidates[0].0.clone()),
         n if n > 1 => Err(GraphifyError::Graph(format!(
-            "ambiguous path '{query}' — {n} nodes match; use the node id"
+            "ambiguous path '{query}' — {n} nodes match; use one of: {}",
+            describe_candidates(&candidates)
         ))),
         _ => Err(GraphifyError::Graph(format!("node not found: '{query}'"))),
     }
+}
+
+/// Render ambiguous matches as actionable `id (file)` options so an agent
+/// can retry with an exact id instead of exploring.
+fn describe_candidates(candidates: &[(String, String)]) -> String {
+    candidates
+        .iter()
+        .take(5)
+        .map(|(id, file)| {
+            if file.is_empty() {
+                id.clone()
+            } else {
+                format!("{id} ({file})")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Compute the blast radius of `query`: everything that references it,

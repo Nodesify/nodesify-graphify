@@ -99,9 +99,11 @@ pub struct AffectedResultJs {
 #[napi]
 pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
@@ -118,9 +120,11 @@ pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<Pipeli
 #[napi]
 pub fn update_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
@@ -197,9 +201,11 @@ pub fn query_graph(
     directed: Option<bool>,
 ) -> napi::Result<QueryResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let (text, node_count, edge_count) = query::query_graph(
@@ -227,9 +233,11 @@ pub fn find_path(
     directed: Option<bool>,
 ) -> napi::Result<PathResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let (found, hops, text) = query::find_shortest_path(
@@ -250,9 +258,11 @@ pub fn find_path(
 #[napi]
 pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<ExplainResultJs>> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let result = query::explain_with_neighbors(&db, &db_path_str, &node_id)
@@ -285,6 +295,11 @@ pub fn affected_node(
     relation: Option<String>,
 ) -> napi::Result<AffectedResultJs> {
     let root_pb = PathBuf::from(&root);
+    // Report via_file hit paths relative to the project root.
+    let root_str = root_pb
+        .canonicalize()
+        .map(|p| graphify_paths::normalize(&p))
+        .unwrap_or(root.clone());
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let result =
@@ -302,7 +317,7 @@ pub fn affected_node(
                 label: h.label,
                 depth: h.depth as i32,
                 relation: h.relation,
-                via_file: h.via_file,
+                via_file: graphify_paths::relative_display(&h.via_file, &root_str),
             })
             .collect(),
     })
@@ -345,9 +360,11 @@ pub fn ingest_url(
             root_pb.display()
         )));
     }
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
 
     let opts = graphify_ingest::IngestOptions {
         author,
@@ -377,6 +394,9 @@ pub fn run_mcp_server(root: String) -> napi::Result<()> {
             root_pb.display()
         )));
     }
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let db_path =
         graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     graphify_mcp::serve(&db_path).map_err(|e| napi::Error::from_reason(e.to_string()))
@@ -385,9 +405,11 @@ pub fn run_mcp_server(root: String) -> napi::Result<()> {
 #[napi]
 pub fn cluster_only(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(
-        &graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    );
+    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
+        &root_pb
+            .canonicalize()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+    )?);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
 

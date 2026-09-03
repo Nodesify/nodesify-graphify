@@ -6,6 +6,15 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 use rusqlite::Connection;
 
+use graphify_paths::relative_display;
+
+/// Fraction of the output budget reserved for EDGE lines. Nodes alone are
+/// capped at this share so a traversal never returns a bag of labels with
+/// the relationships truncated away.
+const NODE_BUDGET_SHARE: f64 = 0.6;
+/// How many near-miss labels to suggest when a query matches nothing.
+const SUGGESTION_COUNT: usize = 3;
+
 /// Global cache of loaded graphs, keyed by normalized DB path.
 static GRAPH_CACHE: LazyLock<RwLock<HashMap<String, Arc<LoadedGraph>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -72,9 +81,28 @@ struct LoadedGraph {
     /// and `directed` queries can follow it.
     graph: DiGraph<NodeData, EdgeData>,
     id_to_idx: HashMap<String, NodeIndex>,
+    /// Project root derived from the DB path (`root/.graphify/db.sqlite`),
+    /// used to shorten stored absolute paths in agent-facing output.
+    root: Option<String>,
 }
 
-fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
+impl LoadedGraph {
+    /// Root-relative display form of a stored path.
+    fn display_path(&self, path: &str) -> String {
+        match &self.root {
+            Some(root) => relative_display(path, root),
+            None => path.trim_start_matches("//?/").to_string(),
+        }
+    }
+}
+
+fn load_graph(db: &Connection, db_path: &str) -> graphify_core::Result<LoadedGraph> {
+    // Project root: two levels above the DB file (root/.graphify/db.sqlite).
+    let root = std::path::Path::new(db_path)
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_string_lossy().replace('\\', "/"));
+
     let mut nodes = Vec::new();
     {
         let mut stmt =
@@ -140,7 +168,11 @@ fn load_graph(db: &Connection) -> graphify_core::Result<LoadedGraph> {
         }
     }
 
-    Ok(LoadedGraph { graph, id_to_idx })
+    Ok(LoadedGraph {
+        graph,
+        id_to_idx,
+        root,
+    })
 }
 
 fn load_graph_cached(db: &Connection, db_path: &str) -> graphify_core::Result<Arc<LoadedGraph>> {
@@ -151,7 +183,7 @@ fn load_graph_cached(db: &Connection, db_path: &str) -> graphify_core::Result<Ar
         }
     }
 
-    let loaded = Arc::new(load_graph(db)?);
+    let loaded = Arc::new(load_graph(db, db_path)?);
     {
         let mut cache = GRAPH_CACHE.write().unwrap();
         cache.insert(db_path.to_string(), Arc::clone(&loaded));
@@ -219,6 +251,39 @@ fn tokenize(s: &str) -> Vec<String> {
 
 /// Score nodes against question terms: exact token match on the label beats
 /// prefix beats substring; file-path matches count at half weight.
+/// The `k` node labels most similar to `query` — did-you-mean suggestions
+/// so a failed lookup hands the agent something actionable instead of a
+/// dead end. Best Jaro-Winkler score across the query's terms wins.
+fn nearest_labels(loaded: &LoadedGraph, query: &str, k: usize) -> Vec<String> {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .filter(|t| t.len() > 2)
+        .map(|t| t.to_lowercase())
+        .collect();
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<(f64, &String)> = Vec::new();
+    for idx in loaded.graph.node_indices() {
+        let label = &loaded.graph[idx].label;
+        let label_lower = label.to_lowercase();
+        let best = terms
+            .iter()
+            .map(|t| strsim::jaro_winkler(&label_lower, t))
+            .fold(0.0_f64, f64::max);
+        if best > 0.6 {
+            scored.push((best, label));
+        }
+    }
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(b.1))
+    });
+    scored.truncate(k);
+    scored.into_iter().map(|(_, l)| l.clone()).collect()
+}
+
 fn score_nodes(loaded: &LoadedGraph, terms: &[String]) -> Vec<(f64, NodeIndex)> {
     let mut scored: Vec<(f64, NodeIndex)> = Vec::new();
     for idx in loaded.graph.node_indices() {
@@ -339,17 +404,24 @@ fn subgraph_to_text(
     token_budget: i64,
 ) -> String {
     let char_budget = (token_budget as usize) * 3;
+    // Nodes alone may not consume more than their share — the relationships
+    // are the point of a graph traversal, so edges always keep budget.
+    let node_budget = (char_budget as f64 * NODE_BUDGET_SHARE) as usize;
     let mut out = String::new();
 
     let mut node_list: Vec<NodeIndex> = visited.iter().copied().collect();
     node_list.sort_by_key(|&idx| std::cmp::Reverse(loaded.graph.neighbors(idx).count()));
 
+    let mut shown_nodes = 0usize;
     for idx in &node_list {
         let node = &loaded.graph[*idx];
         let comm = node.community.map_or("?".to_string(), |c| c.to_string());
         let mut line = format!(
-            "NODE {} [src={} community={}]\n",
-            node.label, node.source_file, comm
+            "NODE {} [id={} src={} community={}]\n",
+            node.label,
+            node.id,
+            loaded.display_path(&node.source_file),
+            comm
         );
         if let Some(ref doc) = node.docstring {
             if !doc.is_empty() {
@@ -357,16 +429,22 @@ fn subgraph_to_text(
                 line.push_str(&format!("  summary: {}\n", summary));
             }
         }
-        if out.len() + line.len() > char_budget {
+        if out.len() + line.len() > node_budget && shown_nodes > 0 {
             out.push_str(&format!(
-                "... (truncated to ~{} token budget)\n",
-                token_budget
+                "... (showing top {} of {} nodes; edges follow)\n",
+                shown_nodes,
+                node_list.len()
             ));
-            return out;
+            break;
         }
         out.push_str(&line);
+        shown_nodes += 1;
     }
 
+    // Edges get the remaining budget, with a floor so even a tiny budget
+    // still yields some relationships instead of node labels only.
+    let edge_budget = char_budget.saturating_sub(node_budget).max(200);
+    let mut edge_spent = 0usize;
     for (src_idx, tgt_idx) in edges_seen {
         let src = &loaded.graph[*src_idx];
         let tgt = &loaded.graph[*tgt_idx];
@@ -375,7 +453,7 @@ fn subgraph_to_text(
                 "EDGE {} --{} [{}]--> {}\n",
                 src.label, edge.relation, edge.confidence, tgt.label
             );
-            if out.len() + line.len() > char_budget {
+            if edge_spent > 0 && edge_spent + line.len() > edge_budget {
                 out.push_str(&format!(
                     "... (truncated to ~{} token budget)\n",
                     token_budget
@@ -383,6 +461,7 @@ fn subgraph_to_text(
                 return out;
             }
             out.push_str(&line);
+            edge_spent += line.len();
         }
     }
 
@@ -445,7 +524,16 @@ pub fn query_graph(
     let terms: Vec<String> = question.split_whitespace().map(|s| s.to_string()).collect();
     let scored = score_nodes(&loaded, &terms);
     if scored.is_empty() {
-        return Ok(("No matching nodes found.".to_string(), 0, 0));
+        let suggestions = nearest_labels(&loaded, question, SUGGESTION_COUNT);
+        let msg = if suggestions.is_empty() {
+            "No matching nodes found.".to_string()
+        } else {
+            format!(
+                "No matching nodes found. Did you mean: {}?",
+                suggestions.join(", ")
+            )
+        };
+        return Ok((msg, 0, 0));
     }
 
     let seed_nodes: Vec<NodeIndex> = scored.iter().take(5).map(|(_, idx)| *idx).collect();
@@ -503,21 +591,23 @@ pub fn find_shortest_path(
     let src_idx = match src_scored.first() {
         Some((_, idx)) => *idx,
         None => {
-            return Ok((
-                false,
-                0,
-                format!("No matching node for '{}'.", source_query),
-            ))
+            let mut msg = format!("No matching node for '{}'.", source_query);
+            let suggestions = nearest_labels(&loaded, source_query, SUGGESTION_COUNT);
+            if !suggestions.is_empty() {
+                msg.push_str(&format!(" Did you mean: {}?", suggestions.join(", ")));
+            }
+            return Ok((false, 0, msg));
         }
     };
     let tgt_idx = match tgt_scored.first() {
         Some((_, idx)) => *idx,
         None => {
-            return Ok((
-                false,
-                0,
-                format!("No matching node for '{}'.", target_query),
-            ))
+            let mut msg = format!("No matching node for '{}'.", target_query);
+            let suggestions = nearest_labels(&loaded, target_query, SUGGESTION_COUNT);
+            if !suggestions.is_empty() {
+                msg.push_str(&format!(" Did you mean: {}?", suggestions.join(", ")));
+            }
+            return Ok((false, 0, msg));
         }
     };
 
@@ -583,7 +673,7 @@ pub fn explain_with_neighbors(
         neighbors.push(EdgeInfoResult {
             neighbor_id: neighbor_data.id.clone(),
             neighbor_label: neighbor_data.label.clone(),
-            neighbor_file: neighbor_data.source_file.clone(),
+            neighbor_file: loaded.display_path(&neighbor_data.source_file),
             relation: edge.map_or("?".to_string(), |e| e.relation.clone()),
             confidence: edge.map_or("?".to_string(), |e| e.confidence.clone()),
             strength: edge.map_or(0.0, |e| e.strength()),
@@ -607,7 +697,7 @@ pub fn explain_with_neighbors(
     Ok(Some(ExplainResult {
         id: node.id.clone(),
         label: node.label.clone(),
-        source_file: node.source_file.clone(),
+        source_file: loaded.display_path(&node.source_file),
         community: node.community,
         neighbor_count,
         neighbors,
@@ -767,5 +857,78 @@ mod tests {
         assert!(confidence_rank("DECLARED") > confidence_rank("EXTRACTED"));
         assert!(confidence_rank("EXTRACTED") > confidence_rank("INFERRED"));
         assert!(confidence_rank("INFERRED") > confidence_rank("SEMANTIC"));
+    }
+
+    #[test]
+    fn no_match_suggests_nearest_labels() {
+        let db = open_db_in_memory().unwrap();
+        let key = seed(&db);
+        let (text, nodes, _) = query_graph(
+            &db,
+            &key,
+            "Alpga completly-unrelated-xyzzy",
+            "bfs",
+            2,
+            2000,
+            false,
+        )
+        .unwrap();
+        assert_eq!(nodes, 0);
+        assert!(
+            text.contains("Did you mean") && text.contains("Alpha"),
+            "should suggest the near-miss label, got: {text}"
+        );
+    }
+
+    #[test]
+    fn node_lines_carry_ids_and_relative_paths() {
+        let db = open_db_in_memory().unwrap();
+        // Seed with an absolute source path under a fake root; the DB path
+        // determines the root.
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('a', 'Alpha', 'code', 'C:/repo/src/alpha.rs');
+            INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES
+                ('a', 'a', 'calls', 'EXTRACTED', 1.0, 'C:/repo/src/alpha.rs');",
+        )
+        .unwrap();
+        let (text, _, _) = query_graph(
+            &db,
+            "C:/repo/.graphify/db.sqlite",
+            "Alpha",
+            "bfs",
+            2,
+            2000,
+            false,
+        )
+        .unwrap();
+        assert!(
+            text.contains("[id=a src=src/alpha.rs"),
+            "expected id and root-relative path in output, got: {text}"
+        );
+        assert!(!text.contains("C:/repo/src"), "absolute path must not leak");
+    }
+
+    #[test]
+    fn tiny_budget_keeps_edges_not_just_nodes() {
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file, docstring) VALUES
+                ('a', 'Alpha', 'code', 'f.rs', 'docstring-a'),
+                ('b', 'Beta', 'code', 'f.rs', 'docstring-b'),
+                ('c', 'Gamma', 'code', 'f.rs', 'docstring-c'),
+                ('d', 'Delta', 'code', 'f.rs', 'docstring-d');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('a', 'b', 'calls', 'EXTRACTED', 'f.rs'),
+                ('a', 'c', 'calls', 'EXTRACTED', 'f.rs'),
+                ('a', 'd', 'calls', 'EXTRACTED', 'f.rs');",
+        )
+        .unwrap();
+        let (text, _, _) =
+            query_graph(&db, ":memory:edgebudget", "Alpha", "bfs", 2, 1, false).unwrap();
+        assert!(
+            text.contains("EDGE"),
+            "edge lines must survive a tiny budget, got: {text}"
+        );
     }
 }

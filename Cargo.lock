@@ -472,6 +472,7 @@ name = "graphify-analyze"
 version = "0.1.0"
 dependencies = [
  "graphify-core",
+ "graphify-paths",
  "petgraph",
  "rusqlite",
 ]
@@ -637,6 +638,7 @@ dependencies = [
  "graphify-paths",
  "petgraph",
  "rusqlite",
+ "strsim",
  "tempfile",
 ]
 

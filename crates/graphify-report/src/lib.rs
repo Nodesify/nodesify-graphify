@@ -66,6 +66,54 @@ pub fn generate_report(
         )),
     }
 
+    // Which build produced this graph - lets agents (and hooks) detect a
+    // stale graph written by an older binary.
+    let pipeline_version: Option<String> = db
+        .query_row(
+            "SELECT value FROM _meta WHERE key = 'pipeline_version'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(v) = pipeline_version {
+        report.push_str(&format!("_Built by graphify v{v}._\n\n"));
+    }
+
+    report.push_str("## Communities\n\n");
+    {
+        let communities_stmt =
+            db.prepare("SELECT label, size, cohesion FROM communities ORDER BY size DESC LIMIT 10");
+        if let Ok(mut stmt) = communities_stmt {
+            let rows: Vec<(String, i64, Option<f64>)> = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            if rows.is_empty() {
+                report.push_str("No communities detected.\n\n");
+            } else {
+                for (label, size, cohesion) in &rows {
+                    let coh = cohesion
+                        .map(|c| format!("{c:.2}"))
+                        .unwrap_or_else(|| "-".into());
+                    report.push_str(&format!("- **{label}** ({size} nodes, cohesion {coh})\n"));
+                }
+                if community_count as i64 > rows.len() as i64 {
+                    report.push_str(&format!(
+                        "\n... and {} more communities (see the MCP list_communities tool).\n",
+                        community_count as i64 - rows.len() as i64
+                    ));
+                }
+                report.push('\n');
+            }
+        }
+    }
+
     report.push_str("## Hub Nodes (God Nodes)\n\n");
     if analysis.god_nodes.is_empty() {
         report.push_str("No hub nodes found.\n\n");

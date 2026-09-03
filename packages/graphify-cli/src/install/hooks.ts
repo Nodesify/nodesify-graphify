@@ -2,11 +2,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
+const UPDATE_HELPER = `
+// Prefer a workspace-local CLI, then a locally-installed package, and only
+// then whatever is on PATH — a stale global install would rebuild the graph
+// with old pipeline code and silently regress the report.
+function runGraphifyUpdate() {
+  if (existsSync(path.join('packages', 'graphify-cli', 'dist', 'index.js'))) {
+    execSync('node packages/graphify-cli/dist/index.js update .', { stdio: 'inherit' });
+    return;
+  }
+  try {
+    execSync('npx --no-install nodesify-graphify update .', { stdio: 'inherit' });
+  } catch {
+    execSync('nodesify-graphify update .', { stdio: 'inherit' });
+  }
+}
+`;
+
 const POST_COMMIT_SCRIPT = `// nodesify-graphify-hook-start
 const { execSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
-
+${UPDATE_HELPER}
 try {
   const gitDir = execSync('git rev-parse --git-dir 2>/dev/null', { encoding: 'utf-8' }).trim();
   const checks = [
@@ -23,7 +40,7 @@ try {
   const codeExts = new Set(['.py', '.js', '.ts', '.tsx', '.jsx', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp']);
   const hasCode = changed.split(/\\r?\\n/).some(f => codeExts.has(path.extname(f)));
   if (hasCode && existsSync('.graphify')) {
-    execSync('nodesify-graphify update .', { stdio: 'inherit' });
+    runGraphifyUpdate();
   }
 } catch {}
 // nodesify-graphify-hook-end
@@ -33,7 +50,7 @@ const POST_CHECKOUT_SCRIPT = `// nodesify-graphify-checkout-hook-start
 const { execSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
-
+${UPDATE_HELPER}
 const branchSwitch = process.argv[3];
 if (branchSwitch !== '1') process.exit(0);
 if (!existsSync('.graphify')) process.exit(0);
@@ -43,7 +60,7 @@ try {
   if (existsSync(path.join(gitDir, 'rebase-merge')) || existsSync(path.join(gitDir, 'rebase-apply'))) process.exit(0);
 
   console.log('[nodesify-graphify] Branch switched - rebuilding knowledge graph...');
-  execSync('nodesify-graphify update .', { stdio: 'inherit' });
+  runGraphifyUpdate();
 } catch {}
 // nodesify-graphify-checkout-hook-end
 `;

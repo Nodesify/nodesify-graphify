@@ -124,15 +124,14 @@ pub fn language_for_extension(ext: &str) -> Option<&'static str> {
         .map(|(_, lang)| *lang)
 }
 
-fn file_hash(path: &Path) -> std::io::Result<String> {
-    let bytes = std::fs::read(path)?;
+fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     // Versioned with the extraction scheme tag so scheme changes turn every
     // file "changed" once and force a clean full rebuild on upgrade.
     hasher.update(graphify_core::EXTRACTION_HASH_VERSION.as_bytes());
     hasher.update([0u8]);
-    hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResult> {
@@ -168,6 +167,11 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
         if graphify_core::security::is_sensitive_path(&rel_str) {
             continue;
         }
+        // Skip build output, vendored dependencies, and bundler artifacts —
+        // minified blobs flood the graph with one-letter function nodes.
+        if graphify_core::security::is_noise_path(&rel_str) {
+            continue;
+        }
         let Some(file_type) = classify_file(path) else {
             continue;
         };
@@ -182,7 +186,21 @@ pub fn detect(root: &Path, db: &Connection) -> graphify_core::Result<DetectResul
             continue;
         }
 
-        let hash = file_hash(path)?;
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        // Minified/generated blobs (bundler output = few, huge lines) are
+        // noise: they spawn single-letter function nodes that flood hubs
+        // and query results.
+        let sample_len = bytes.len().min(64 * 1024);
+        let sample_newlines = bytes[..sample_len].iter().filter(|&&b| b == b'\n').count();
+        if graphify_core::security::looks_minified(bytes.len() as u64, sample_len, sample_newlines)
+        {
+            continue;
+        }
+
+        let hash = hash_bytes(&bytes);
 
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let language = language_for_extension(ext).map(|s| s.to_string());

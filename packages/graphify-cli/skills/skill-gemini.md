@@ -30,6 +30,8 @@ When `.graphify/` exists, you MUST use graphify commands BEFORE using `read_file
 |----------|---------|
 | Where is X? | `nodesify-graphify query "X"` |
 | How does X connect to Y? | `nodesify-graphify path "X" "Y"` |
+| What breaks if X changes? | `nodesify-graphify affected "X"` |
+| How does X reach Y (call direction)? | `nodesify-graphify path "X" "Y" --directed` |
 | What does X do? | `nodesify-graphify explain "X"` |
 | Architecture overview? | Read `.graphify/graph_report.md` |
 

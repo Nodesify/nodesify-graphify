@@ -30,6 +30,7 @@ Aider focuses on code editing. Use graphify to understand the codebase before ma
 nodesify-graphify query "authentication flow"    # understand a feature
 nodesify-graphify explain "UserService"           # see what a class does
 nodesify-graphify path "Config" "Database"        # trace dependencies
+nodesify-graphify affected "UserService"          # blast radius of a change
 ```
 
 After editing, run `nodesify-graphify update .` to keep the graph current.

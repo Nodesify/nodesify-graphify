@@ -68,6 +68,17 @@ fn bool_arg(args: &Value, key: &str) -> Option<bool> {
     args.get(key).and_then(|v| v.as_bool())
 }
 
+/// Community id -> hub label, for human/agent-readable output.
+fn community_label_map(db: &Connection) -> std::collections::HashMap<i64, String> {
+    let mut stmt = match db.prepare("SELECT id, label FROM communities") {
+        Ok(s) => s,
+        Err(_) => return Default::default(),
+    };
+    stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default()
+}
+
 fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match name {
         "query_graph" => {
@@ -148,7 +159,22 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
             let relation = str_arg(args, "relation");
             graphify_analyze::affected::affected(db, &node, depth, relation.as_deref()).map(|r| {
-                let mut out = format!("Blast radius of {} ({}):\n", r.seed_label, r.total);
+                // Stored paths are absolute; show them relative to the
+                // project root so lines stay short.
+                let root = std::path::Path::new(db_path)
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_string_lossy().replace('\\', "/"));
+                let rel = |path: &str| -> String {
+                    match &root {
+                        Some(r) => graphify_paths::relative_display(path, r),
+                        None => path.to_string(),
+                    }
+                };
+                let mut out = format!(
+                    "Blast radius of {} ({}, {} hits):\n",
+                    r.seed_label, r.seed, r.total
+                );
                 let mut last_depth = 0;
                 for h in &r.hits {
                     if h.depth != last_depth {
@@ -156,19 +182,31 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
                         out.push_str(&format!("\ndepth {}:\n", h.depth));
                     }
                     out.push_str(&format!(
-                        "  {} ({}) via {}\n",
-                        h.label, h.relation, h.via_file
+                        "  {} [id={}] ({}) via {}\n",
+                        h.label,
+                        h.id,
+                        h.relation,
+                        rel(&h.via_file)
                     ));
                 }
                 text_result(out)
             })
         }
         "god_nodes" => graphify_analyze::analyze(db).map(|a| {
+            let community_labels = community_label_map(db);
             let mut out = String::from("Top hubs:\n");
             for n in &a.god_nodes {
+                // Print the community's hub label, never the raw Option number.
+                let comm = match n.community {
+                    Some(c) => community_labels
+                        .get(&(c as i64))
+                        .cloned()
+                        .unwrap_or_else(|| c.to_string()),
+                    None => "-".to_string(),
+                };
                 out.push_str(&format!(
-                    "  {} (degree {}, community {:?})\n",
-                    n.label, n.degree, n.community
+                    "  {} (degree {}, community {})\n",
+                    n.label, n.degree, comm
                 ));
             }
             text_result(out)
@@ -179,7 +217,17 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let rows: Vec<(i64, String, Option<f64>, i64)> = stmt
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
                 .collect::<std::result::Result<_, _>>()?;
-            let mut out = format!("{} communities:\n", rows.len());
+            let modularity: Option<f64> = db
+                .query_row(
+                    "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            let modularity_txt = modularity
+                .map(|q| format!(" (modularity {q:.3})"))
+                .unwrap_or_default();
+            let mut out = format!("{} communities{modularity_txt}:\n", rows.len());
             for (id, label, cohesion, size) in rows {
                 out.push_str(&format!(
                     "  [{id}] {label} - {size} nodes, cohesion {}\n",
@@ -203,8 +251,18 @@ fn call_tool(db: &Connection, db_path: &str, name: &str, args: &Value) -> Value 
             let files: i64 = db
                 .query_row("SELECT COUNT(*) FROM file_manifest", [], |r| r.get(0))
                 .unwrap_or(0);
+            let modularity: Option<f64> = db
+                .query_row(
+                    "SELECT CAST(value AS REAL) FROM _meta WHERE key = 'last_modularity'",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            let modularity_txt = modularity
+                .map(|q| format!(", modularity: {q:.3}"))
+                .unwrap_or_default();
             Ok(text_result(format!(
-                "nodes: {nodes}, edges: {edges}, communities: {communities}, files tracked: {files}"
+                "nodes: {nodes}, edges: {edges}, communities: {communities}, files tracked: {files}{modularity_txt}"
             )))
         }
         other => Ok(error_result(format!("unknown tool: {other}"))),
