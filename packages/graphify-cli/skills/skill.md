@@ -24,7 +24,7 @@ Act on the result:
 - `stale`: Run `nodesify-graphify update .` — incremental rebuild of changed files. Wait for it to complete.
 - `fresh`: Skip to Step 2.
 
-After running `run` or `update`, verify the output shows `Nodes added` > 0 or `Communities` > 0. If the graph is empty (0 nodes), tell the user: "No supported files found. graphify supports Python, JS, TS, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS, Markdown, plain text, and PDF."
+After running `run` or `update`, verify with `nodesify-graphify stats --graph .` that Nodes > 0 (an incremental update with no changes correctly reports 0 nodes added). If Nodes is 0, tell the user: "No supported files found. graphify supports Python, JS, TS, Rust, Go, Java, C, C++, Ruby, Swift, Scala, PHP, C#, Lua, Haskell, Elixir, Bash, Dart, Zig, CSS, Markdown, plain text, and PDF."
 
 ### Step 2 - Read the graph report
 
@@ -116,6 +116,7 @@ Options:
 - `--dfs` — depth-first search (traces specific paths)
 - `--depth <n>` — traversal depth (default: 2)
 - `--budget <n>` — token budget for output (default: 2000)
+- `--directed` — follow edges only in their stored direction (caller -> callee, importer -> module)
 - `--graph <path>` — project root (default: `.`)
 
 ### `nodesify-graphify explain <node> [options]`
@@ -132,7 +133,22 @@ Find shortest path between two concepts.
 
 ```
 nodesify-graphify path "AuthService" "Database"
+nodesify-graphify path "AuthService" "Database" --directed   # only caller -> callee direction
 ```
+
+### `nodesify-graphify affected <node> [options]`
+
+Blast radius — everything impacted by changing a node (reverse reachability over calls/imports/uses).
+
+```
+nodesify-graphify affected "UserService" --depth 3
+nodesify-graphify affected "UserService" --relation calls
+```
+
+### MCP server
+
+`nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.
+
 
 ### `nodesify-graphify stats [options]`
 

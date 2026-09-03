@@ -1,9 +1,32 @@
 use std::path::{Path, PathBuf};
 
 /// Normalize a path to forward-slash representation for DB storage.
-/// Converts all backslashes to forward slashes on any platform.
+/// Converts all backslashes to forward slashes on any platform and strips
+/// the Windows verbatim prefix (`\\?\C:\...` → `C:/...`), which otherwise
+/// leaks into every stored path and downstream agent-facing output.
 pub fn normalize(p: &Path) -> String {
-    p.to_string_lossy().to_string().replace('\\', "/")
+    let s = p.to_string_lossy().replace('\\', "/");
+    match s.strip_prefix("//?/") {
+        Some(stripped) => stripped.to_string(),
+        None => s,
+    }
+}
+
+/// Display form of a stored path: relative to `root` when it lives under
+/// the project root, unchanged otherwise. This keeps agent-facing output
+/// (query/explain/affected lines, MCP text) short instead of repeating the
+/// absolute project prefix on every line.
+pub fn relative_display(path: &str, root: &str) -> String {
+    let path = path.trim_start_matches("//?/");
+    let root = root.trim_end_matches('/');
+    let root = root.trim_start_matches("//?/");
+    if root.is_empty() {
+        return path.to_string();
+    }
+    match path.strip_prefix(root) {
+        Some(rest) if rest.starts_with('/') => rest[1..].to_string(),
+        _ => path.to_string(),
+    }
 }
 
 /// Return the `.graphify` directory path under the given root.
@@ -44,6 +67,48 @@ mod tests {
     #[test]
     fn normalize_already_normalized() {
         assert_eq!(normalize(Path::new("a/b/c.py")), "a/b/c.py");
+    }
+
+    #[test]
+    fn normalize_strips_windows_verbatim_prefix() {
+        assert_eq!(
+            normalize(Path::new("\\\\?\\C:\\repo\\src\\lib.rs")),
+            "C:/repo/src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn relative_display_strips_root_prefix() {
+        assert_eq!(
+            relative_display("C:/repo/src/lib.rs", "C:/repo"),
+            "src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn relative_display_handles_verbatim_prefixes() {
+        assert_eq!(
+            relative_display("//?/C:/repo/src/lib.rs", "//?/C:/repo"),
+            "src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn relative_display_leaves_foreign_paths_untouched() {
+        assert_eq!(
+            relative_display("D:/other/main.py", "C:/repo"),
+            "D:/other/main.py"
+        );
+        assert_eq!(relative_display("src/main.rs", ""), "src/main.rs");
+    }
+
+    #[test]
+    fn relative_display_keeps_partial_prefixes() {
+        // "C:/repository" must not be treated as under "C:/repo"
+        assert_eq!(
+            relative_display("C:/repository/src/lib.rs", "C:/repo"),
+            "C:/repository/src/lib.rs"
+        );
     }
 
     #[test]

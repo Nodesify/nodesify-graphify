@@ -226,6 +226,29 @@ pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<Pipe
     let db_path = graphify_paths::db_path(&root)?;
     let db = db::open_db(&db_path)?;
 
+    // Stamp the build so stale graphs (e.g. written by an older globally
+    // installed binary from a git hook) are detectable in the report.
+    let this_version = env!("CARGO_PKG_VERSION");
+    let stored_version: Option<String> = db
+        .query_row(
+            "SELECT value FROM _meta WHERE key = 'pipeline_version'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    match &stored_version {
+        Some(prev) if prev != this_version => {
+            eprintln!(
+                "[graphify] graph was last built by v{prev}, rebuilding with v{this_version}"
+            );
+        }
+        _ => {}
+    }
+    let _ = db.execute(
+        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('pipeline_version', ?1)",
+        rusqlite::params![this_version],
+    );
+
     // Record pipeline start (root is now canonicalized)
     let run_id: i64 = db.query_row(
         "INSERT INTO pipeline_runs (started_at, status) VALUES (?1, 'running') RETURNING id",
@@ -309,6 +332,11 @@ fn run_pipeline_inner(
         let report = graphify_report::generate_report(db, &analysis)?;
         write_report(graphify_dir, &report)?;
         export_json(db, &graphify_dir.join("graph.json"))?;
+        // Report the communities that exist in the DB, not an empty
+        // placeholder - the CLI prints this count on every no-op update.
+        let community_count: i64 = db
+            .query_row("SELECT COUNT(*) FROM communities", [], |r| r.get(0))
+            .unwrap_or(0);
         return Ok(PipelineResult {
             build_result: graphify_build::BuildResult {
                 nodes_added: 0,
@@ -316,7 +344,7 @@ fn run_pipeline_inner(
                 duplicates_merged: 0,
             },
             cluster_result: graphify_cluster::ClusterResult {
-                communities: Default::default(),
+                communities: (0..community_count.max(0) as u32).map(|i| (i, 0)).collect(),
                 labels: Default::default(),
                 iterations: 0,
                 modularity: 0.0,

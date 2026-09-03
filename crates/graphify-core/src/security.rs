@@ -149,6 +149,59 @@ pub fn is_sensitive_path(rel_path: &str) -> bool {
     false
 }
 
+/// Directory names that hold build artifacts, dependencies, or bundles —
+/// graph noise rather than project source. Mostly redundant with
+/// .gitignore, but keeps projects without one clean too.
+pub const NOISE_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    "venv",
+    ".venv",
+];
+
+/// True when a repo-relative path is build output, a dependency tree, a
+/// bundler artifact (`*.min.js`, sourcemaps), or lives in a noise
+/// directory. Minified blobs especially pollute the graph with single-letter
+/// function nodes (`g()`, `xA()`) that flood hubs and query results.
+pub fn is_noise_path(rel_path: &str) -> bool {
+    let normalized = rel_path.replace('\\', "/");
+    let parts: Vec<&str> = normalized.split('/').collect();
+    if parts.is_empty() {
+        return false;
+    }
+    if parts[..parts.len() - 1]
+        .iter()
+        .any(|dir| NOISE_DIRS.contains(dir))
+    {
+        return true;
+    }
+    let file = parts[parts.len() - 1].to_lowercase();
+    if file.ends_with(".min.js") || file.ends_with(".min.css") || file.ends_with(".min.mjs") {
+        return true;
+    }
+    // Source maps are generated JSON blobs.
+    file.ends_with(".map")
+}
+
+/// Heuristic for minified/generated content: a large file whose sampled
+/// prefix has very long average lines (bundlers emit few, huge lines).
+/// `sample_len`/`sample_newlines` describe the first slice of the file.
+pub fn looks_minified(total_len: u64, sample_len: usize, sample_newlines: usize) -> bool {
+    if total_len < 20_000 {
+        return false;
+    }
+    if sample_len == 0 {
+        return true;
+    }
+    if sample_newlines == 0 {
+        return true;
+    }
+    sample_len / sample_newlines > 500
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +270,36 @@ mod tests {
         // source code is exempt from secret-looking-name rules
         assert!(!is_sensitive_path("src/password_validator.ts"));
         assert!(!is_sensitive_path("src/SecretService.java"));
+    }
+
+    #[test]
+    fn noise_paths_blocked() {
+        assert!(is_noise_path("web/dist/app.min.js"));
+        assert!(is_noise_path("crates/web/src/assets/vis-network.min.js"));
+        assert!(is_noise_path("app.js.map"));
+        assert!(is_noise_path("node_modules/left-pad/index.js"));
+        assert!(is_noise_path("target/release/build.rs"));
+    }
+
+    #[test]
+    fn source_paths_not_noise() {
+        assert!(!is_noise_path("src/main.rs"));
+        assert!(!is_noise_path("web/app.js"));
+        assert!(!is_noise_path("docs/world.map.md"));
+        assert!(!is_noise_path("src/map.ts"));
+    }
+
+    #[test]
+    fn minified_heuristic_flags_bundles_not_source() {
+        assert!(looks_minified(500_000, 4096, 4), "avg 1KB lines = minified");
+        assert!(looks_minified(500_000, 4096, 0), "no newlines = minified");
+        assert!(
+            !looks_minified(90_000, 4096, 100),
+            "normal source ~40 chars/line"
+        );
+        assert!(
+            !looks_minified(5_000, 4096, 1),
+            "small files are never flagged"
+        );
     }
 }

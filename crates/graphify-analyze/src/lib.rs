@@ -39,7 +39,7 @@ pub struct AnalysisResult {
 pub fn analyze(db: &Connection) -> graphify_core::Result<AnalysisResult> {
     let god_nodes = compute_god_nodes(db)?;
     let surprising = compute_surprising_connections(db)?;
-    let questions = suggest_questions(db, &god_nodes)?;
+    let questions = suggest_questions(db, &god_nodes, &surprising)?;
     Ok(AnalysisResult {
         god_nodes,
         surprising_connections: surprising,
@@ -225,14 +225,69 @@ fn compute_surprising_connections(db: &Connection) -> graphify_core::Result<Vec<
     Ok(scored)
 }
 
+/// Questions grounded in actual graph signals instead of one repeated
+/// template: the top hub, the strongest cross-community bridge, and orphan
+/// files that nothing references. Every question names its evidence so an
+/// agent can act on it directly.
 fn suggest_questions(
     db: &Connection,
     god_nodes: &[NodeAnalysis],
+    surprising: &[SurprisingEdge],
 ) -> graphify_core::Result<Vec<String>> {
     let mut questions = Vec::new();
-    for node in god_nodes.iter().take(5) {
-        questions.push(format!("Why does {} have so many connections?", node.label));
+
+    if let Some(top) = god_nodes.first() {
+        questions.push(format!(
+            "Why does {} have {} connections — shared core or coupling problem?",
+            top.label, top.degree
+        ));
     }
+
+    if let Some(bridge) = surprising.first() {
+        questions.push(format!(
+            "{} {} {} crosses a community boundary - intentional or accidental coupling?",
+            bridge.source_label, bridge.relation, bridge.target_label
+        ));
+    }
+
+    // Orphan files: files that have nodes but no node participates in any
+    // edge — dead code, dynamically-loaded code, or extraction gaps.
+    let mut orphan_files: Vec<String> = Vec::new();
+    {
+        let mut all_files = db.prepare("SELECT DISTINCT source_file FROM nodes")?;
+        let mut with_edges = db.prepare(
+            "SELECT DISTINCT n.source_file FROM nodes n JOIN edges e ON e.source = n.id \
+             UNION \
+             SELECT DISTINCT n.source_file FROM nodes n JOIN edges e ON e.target = n.id",
+        )?;
+        let files: Vec<String> = all_files.query_map([], |r| r.get(0))?.flatten().collect();
+        let connected: std::collections::HashSet<String> =
+            with_edges.query_map([], |r| r.get(0))?.flatten().collect();
+        for file in files {
+            if !connected.contains(&file) {
+                orphan_files.push(file);
+            }
+        }
+    }
+    orphan_files.sort();
+    orphan_files.truncate(2);
+    // Show paths relative to the project root so questions stay readable.
+    let root = db.path().and_then(|db_path| {
+        std::path::Path::new(db_path)
+            .parent()?
+            .parent()
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+    });
+    for file in orphan_files {
+        let display = match &root {
+            Some(r) => graphify_paths::relative_display(&file, r),
+            None => file.clone(),
+        };
+        questions.push(format!(
+            "Is {display} still used? Nothing in the graph references it."
+        ));
+    }
+
     let community_count: i64 = db
         .query_row(
             "SELECT COUNT(DISTINCT community) FROM nodes WHERE community IS NOT NULL",
@@ -242,7 +297,7 @@ fn suggest_questions(
         .unwrap_or(0);
     if community_count > 1 {
         questions.push(format!(
-            "What connects the {} different communities?",
+            "What are the responsibilities of the {} communities?",
             community_count
         ));
     }
@@ -396,5 +451,28 @@ mod tests {
         // No communities table rows → sizes unknown → treated as too small
         let result = analyze(&db).unwrap();
         assert!(result.surprising_connections.is_empty());
+    }
+
+    #[test]
+    fn suggested_questions_flag_orphan_files() {
+        let db = open_db_in_memory().unwrap();
+        seed_analyzed_graph(&db);
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES ('lonely', 'Lonely', 'code', 'orphan.rs');",
+        )
+        .unwrap();
+        let result = analyze(&db).unwrap();
+        assert!(
+            result
+                .suggested_questions
+                .iter()
+                .any(|q| q.contains("orphan.rs")),
+            "orphan file question missing: {:?}",
+            result.suggested_questions
+        );
+        // Questions must be distinct - no repeated template filler.
+        let unique: std::collections::HashSet<&String> =
+            result.suggested_questions.iter().collect();
+        assert_eq!(unique.len(), result.suggested_questions.len());
     }
 }
