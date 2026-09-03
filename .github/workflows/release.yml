@@ -12,6 +12,9 @@ permissions:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      checks: write
 
   build:
     runs-on: ${{ matrix.os }}
