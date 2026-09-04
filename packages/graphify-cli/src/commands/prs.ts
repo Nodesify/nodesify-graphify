@@ -2,7 +2,7 @@
 // (communities touched, node blast radius) and flags merge-order risk.
 // Ported from upstream graphify v8 prs.py. Requires the `gh` CLI (read-only).
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -31,7 +31,7 @@ const RESET = '\x1b[0m';
 
 function ghAvailable(): boolean {
   try {
-    execSync('gh --version', { stdio: 'pipe' });
+    execFileSync('gh', ['--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -39,19 +39,22 @@ function ghAvailable(): boolean {
 }
 
 function listOpenPrs(limit: number): GhPR[] {
-  const out = execSync(
-    `gh pr list --limit ${limit} --json number,title,headRefName,baseRefName,isDraft`,
+  const out = execFileSync(
+    'gh',
+    ['pr', 'list', '--limit', String(limit), '--json', 'number,title,headRefName,baseRefName,isDraft'],
     { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
   );
   return JSON.parse(out);
 }
 
 function prFiles(number: number): string[] {
+  if (!Number.isInteger(number) || number <= 0) return [];
   try {
-    const out = execSync(`gh pr view ${number} --json files`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const out = execFileSync(
+      'gh',
+      ['pr', 'view', String(number), '--json', 'files'],
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     const parsed = JSON.parse(out);
     return (parsed.files || []).map((f: { path: string }) => f.path);
   } catch {

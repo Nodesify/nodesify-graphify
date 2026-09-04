@@ -33,6 +33,9 @@ pub struct QueryResultJs {
     pub edge_count: i64,
     /// Some when the node list was truncated - pass back as `cursor`.
     pub next_cursor: Option<i64>,
+    /// Finished-at timestamp of the most recent completed pipeline run,
+    /// lets callers judge how stale the graph is.
+    pub graph_built_at: Option<String>,
 }
 
 #[napi(object)]
@@ -53,6 +56,7 @@ pub struct EdgeInfoJs {
     pub neighbor_id: String,
     pub neighbor_label: String,
     pub neighbor_file: String,
+    pub neighbor_line: Option<i64>,
     pub relation: String,
     pub confidence: String,
 }
@@ -62,6 +66,7 @@ pub struct ExplainResultJs {
     pub id: String,
     pub label: String,
     pub source_file: String,
+    pub source_line: Option<i64>,
     pub community: Option<i64>,
     pub neighbor_count: i64,
     pub neighbors: Vec<EdgeInfoJs>,
@@ -243,11 +248,19 @@ pub fn query_graph(
         cursor.unwrap_or(0).max(0) as usize,
     )
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let graph_built_at = db
+        .query_row(
+            "SELECT finished_at FROM pipeline_runs WHERE status = 'completed' ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
     Ok(QueryResultJs {
         text,
         node_count: node_count as i64,
         edge_count: edge_count as i64,
         next_cursor: next_cursor.map(|c| c as i64),
+        graph_built_at,
     })
 }
 
@@ -320,6 +333,7 @@ pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<Explai
         id: r.id,
         label: r.label,
         source_file: r.source_file,
+        source_line: r.source_line,
         community: r.community,
         neighbor_count: r.neighbor_count as i64,
         neighbors: r
@@ -329,6 +343,7 @@ pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<Explai
                 neighbor_id: n.neighbor_id,
                 neighbor_label: n.neighbor_label,
                 neighbor_file: n.neighbor_file,
+                neighbor_line: n.neighbor_line,
                 relation: n.relation,
                 confidence: n.confidence,
             })

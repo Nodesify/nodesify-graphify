@@ -6,7 +6,7 @@
  * Run with: npx tsx src/__tests__/cli.test.ts
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { Command } from 'commander';
@@ -113,7 +113,10 @@ assert(optsOf('status').includes('--graph'), 'status should have --graph');
 const entry = join(__dirname, '..', '..', 'dist', 'index.js');
 if (existsSync(entry)) {
   try {
-    const help = execSync(`node "${entry}" --help`, { stdio: 'pipe', encoding: 'utf-8' });
+    const help = execFileSync('node', [entry, '--help'], {
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
     assert(help.includes('Usage:'), 'dist entrypoint --help should print usage');
   } catch (e: any) {
     assert(false, `dist entrypoint should load: ${String(e.message).slice(0, 140)}`);

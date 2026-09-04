@@ -107,6 +107,15 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    if version < 4 {
+        // v4: edge provenance — the source line where an edge was extracted
+        // — so query/explain output can anchor relationships to code.
+        conn.execute_batch("ALTER TABLE edges ADD COLUMN source_line INTEGER;")?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '4')",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -205,7 +214,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "3");
+        assert_eq!(version, "4");
         conn.execute(
             "INSERT INTO nodes (id, label, file_type, source_file, signature) VALUES ('a', 'A', 'code', 'f.rs', 'fn a()')",
             [],
@@ -217,5 +226,28 @@ mod tests {
             })
             .unwrap();
         assert_eq!(sig.as_deref(), Some("fn a()"));
+    }
+
+    #[test]
+    fn schema_v4_has_edge_source_line() {
+        let conn = open_db_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES ('a', 'A', 'code', 'f.rs'), ('b', 'B', 'code', 'f.rs')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO edges (source, target, relation, confidence, source_file, source_line) VALUES ('a', 'b', 'calls', 'EXTRACTED', 'f.rs', 7)",
+            [],
+        )
+        .unwrap();
+        let line: Option<i64> = conn
+            .query_row(
+                "SELECT source_line FROM edges WHERE source = 'a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(line, Some(7));
     }
 }

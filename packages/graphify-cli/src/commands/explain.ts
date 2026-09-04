@@ -9,7 +9,9 @@ export async function explainCommand(node: string, opts: { graph: string }) {
     }
     console.log(`Node: ${result.label}`);
     console.log(`  ID: ${result.id}`);
-    console.log(`  File: ${result.sourceFile}`);
+    console.log(
+      `  File: ${result.sourceFile}${result.sourceLine != null ? `:${result.sourceLine}` : ''}`
+    );
     if (result.community !== null && result.community !== undefined) {
       console.log(`  Community: ${result.community}`);
     }
@@ -17,7 +19,8 @@ export async function explainCommand(node: string, opts: { graph: string }) {
     if (result.neighbors.length > 0) {
       console.log(`\nConnections (${result.neighborCount}):`);
       for (const n of result.neighbors) {
-        console.log(`  --> ${n.neighborLabel} [${n.relation}] [${n.confidence}]`);
+        const loc = n.neighborLine != null ? ` (${n.neighborFile}:${n.neighborLine})` : '';
+        console.log(`  --> ${n.neighborLabel} [${n.relation}] [${n.confidence}]${loc}`);
       }
       if (result.neighborCount > result.neighbors.length) {
         const remaining = result.neighborCount - result.neighbors.length;

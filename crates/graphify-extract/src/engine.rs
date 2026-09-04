@@ -228,6 +228,50 @@ mod tests {
     }
 
     #[test]
+    fn identifier_shaped_strings_become_reference_nodes() {
+        let dir = tempfile::tempdir().unwrap();
+        let py = dir.path().join("svc.py");
+        fs::write(
+            &py,
+            "\nimport os\n\ndef run():\n    url = os.getenv(\"PLANE_URL\")\n    status = \"needs_human\"\n    branch = \"harness/hr-101-fix-redis-leak\"\n    msg = \"retry\"\n    print(url, status, branch, msg)\n",
+        )
+        .unwrap();
+        let db = open_db_in_memory().unwrap();
+        let results = extract(&[py], &db).unwrap();
+        let ext = &results[0];
+
+        // Env-var style, snake_case keys, and slash/kebab chains are indexed.
+        // Ids normalize separators to underscores, so distinct spellings of
+        // the same key (kebab/snake/slash) merge into one reference node.
+        for (literal, id_suffix) in [
+            ("PLANE_URL", "plane_url"),
+            ("needs_human", "needs_human"),
+            ("harness/hr-101-fix-redis-leak", "harness_hr_101_fix_redis_leak"),
+        ] {
+            let node = ext
+                .nodes
+                .iter()
+                .find(|n| n.label == literal)
+                .unwrap_or_else(|| panic!("missing reference node for {literal:?}"));
+            assert_eq!(node.node_type, "reference");
+            assert_eq!(node.id, format!("str::{id_suffix}"));
+            assert!(node.source_line.is_some(), "ref node must carry a line");
+            let edge = ext
+                .edges
+                .iter()
+                .find(|e| e.relation == "references" && e.target == node.id)
+                .unwrap_or_else(|| panic!("missing references edge for {literal:?}"));
+            assert_eq!(edge.source_line, node.source_line);
+        }
+
+        // Plain single words ("retry") and prose strings are NOT indexed.
+        assert!(
+            !ext.nodes.iter().any(|n| n.label == "retry"),
+            "plain word must not become a reference node"
+        );
+    }
+
+    #[test]
     fn qualified_rust_calls_resolve_across_files() {
         let dir = tempfile::tempdir().unwrap();
         let def = dir.path().join("pipeline.rs");

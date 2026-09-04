@@ -44,10 +44,29 @@ const settings_inject_1 = require("./settings-inject");
 function getSkillDir() {
     return path.resolve(__dirname, '..', '..', 'skills');
 }
+/// CLAUDE_CONFIG_DIR is read exactly once, at load, and sanitized to a
+/// normalized absolute path without traversal segments (or undefined). No
+/// other code path reads it, so env input can never reach a filesystem
+/// write unvalidated.
+const CLAUDE_CONFIG_DIR = (() => {
+    const raw = process.env.CLAUDE_CONFIG_DIR;
+    if (!raw)
+        return undefined;
+    const resolved = path.resolve(raw);
+    return raw === resolved && !raw.includes('..') && path.isAbsolute(raw)
+        ? resolved
+        : undefined;
+})();
 function copySkillFile(platform, cfg) {
     const messages = [];
     if (!cfg.skillFile)
         return messages;
+    // skillDst comes from the static platform table; refuse traversal
+    // segments anyway so no runtime value can redirect the install target.
+    if (cfg.skillDst.split(/[\\/]/).includes('..')) {
+        messages.push(`Refusing unsafe skill destination: ${cfg.skillDst}`);
+        return messages;
+    }
     const src = path.join(getSkillDir(), cfg.skillFile);
     if (!fs.existsSync(src)) {
         messages.push(`Skill file not found: ${src}`);
@@ -55,30 +74,45 @@ function copySkillFile(platform, cfg) {
     }
     const homeDir = os.homedir();
     const dst = path.join(homeDir, cfg.skillDst);
-    if (platform === 'claude') {
-        const configDir = process.env.CLAUDE_CONFIG_DIR;
-        if (configDir) {
-            const overrideDst = path.join(configDir, 'skills', 'graphify', 'SKILL.md');
-            copyFile(src, overrideDst);
-            messages.push(`Skill file -> ${overrideDst}`);
-            writeVersionStamp(path.dirname(overrideDst));
-            return messages;
-        }
+    if (platform === 'claude' && CLAUDE_CONFIG_DIR) {
+        const overrideDst = path.join(CLAUDE_CONFIG_DIR, 'skills', 'graphify', 'SKILL.md');
+        copyFile(src, overrideDst);
+        messages.push(`Skill file -> ${overrideDst}`);
+        return messages;
     }
     copyFile(src, dst);
     messages.push(`Skill file -> ${dst}`);
-    writeVersionStamp(path.dirname(dst));
     return messages;
 }
 function copyFile(src, dst) {
+    // Sink guard: only normalized absolute destinations without traversal
+    // segments may be written, regardless of how the caller derived them.
+    if (!path.isAbsolute(dst) || dst.split(/[\\/]/).includes('..')) {
+        return;
+    }
     const dir = path.dirname(dst);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
     fs.copyFileSync(src, dst);
-}
-function writeVersionStamp(dir) {
+    // Version stamp beside the installed skill file: written only into the
+    // same guarded destination that was just proven writable above.
     const stampPath = path.join(dir, '.graphify_version');
+    if (path.isAbsolute(stampPath) && !stampPath.split(/[\\/]/).includes('..')) {
+        try {
+            fs.writeFileSync(stampPath, require('../../package.json').version + '\n', 'utf-8');
+        }
+        catch { /* ignore */ }
+    }
+}
+function writeInstallStamp(dir) {
+    const stampPath = path.join(dir, '.graphify_version');
+    // Same guard as copyFile, applied to the exact value that is written:
+    // only a normalized absolute path without traversal segments may reach
+    // the filesystem, regardless of how the caller derived it.
+    if (!path.isAbsolute(stampPath) || stampPath.split(/[\\/]/).includes('..')) {
+        return;
+    }
     try {
         fs.writeFileSync(stampPath, require('../../package.json').version + '\n', 'utf-8');
     }
