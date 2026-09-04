@@ -66,6 +66,17 @@ fn note_name(label: &str) -> String {
     if out.is_empty() {
         out.push_str("unnamed");
     }
+    // Windows reserved device names (NUL, CON, COM1...) cannot be written
+    // as files — a node labeled "NUL" would otherwise break the export.
+    let stem_lower = out.to_lowercase();
+    if matches!(
+        stem_lower.as_str(),
+        "con" | "prn" | "aux" | "nul"
+            | "com1" | "com2" | "com3" | "com4" | "com5" | "com6" | "com7" | "com8" | "com9"
+            | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5" | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+    ) {
+        out.insert(0, '_');
+    }
     out
 }
 
@@ -584,5 +595,6 @@ mod tests {
     fn note_names_strip_link_syntax_chars() {
         assert_eq!(note_name("weird|label#1"), "weird-label-1");
         assert_eq!(note_name("..."), "unnamed");
+        assert_eq!(note_name("NUL"), "_NUL");
     }
 }
