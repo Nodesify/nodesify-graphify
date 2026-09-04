@@ -64,13 +64,17 @@ for (const opt of ['--depth', '--relation', '--graph']) {
     assert(affectedOpts.includes(opt), `affected should have ${opt}`);
 }
 const exportOpts = optsOf('export');
-for (const opt of ['--format', '--out', '--graph']) {
+for (const opt of ['--format', '--mode', '--out', '--graph']) {
     assert(exportOpts.includes(opt), `export should have ${opt}`);
 }
 const formatOpt = index_1.program.commands
     .find((c) => c.name() === 'export')
     ?.options.find((o) => o.long === '--format');
 assert(!!formatOpt && (formatOpt.defaultValue ?? 'json') === 'json', 'export --format should default to "json"');
+const modeOpt = index_1.program.commands
+    .find((c) => c.name() === 'export')
+    ?.options.find((o) => o.long === '--mode');
+assert(!!modeOpt && (modeOpt.defaultValue ?? 'standard') === 'standard', 'export --mode should default to "standard"');
 for (const opt of ['--author', '--contributor', '--graph']) {
     assert(optsOf('add').includes(opt), `add should have ${opt}`);
 }

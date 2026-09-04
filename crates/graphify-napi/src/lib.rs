@@ -191,10 +191,12 @@ pub fn export_json_cmd(root: String, out_path: String) -> napi::Result<()> {
 }
 
 #[napi]
-pub fn export_html_cmd(root: String, out_path: String) -> napi::Result<()> {
+pub fn export_html_cmd(root: String, out_path: String, mode: Option<String>) -> napi::Result<()> {
     let db = pipeline::load_graph_db(&PathBuf::from(&root))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    export_html::export_html(&db, &PathBuf::from(&out_path))
+    let mode = export_html::HtmlExportMode::parse(mode.as_deref().unwrap_or("standard"))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    export_html::export_html_with_mode(&db, &PathBuf::from(&out_path), mode)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(())
 }

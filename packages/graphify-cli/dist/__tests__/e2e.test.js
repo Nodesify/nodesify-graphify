@@ -76,6 +76,11 @@ else {
     const missing = runCli(['stats', '--graph', (0, path_1.join)(tmp, 'nowhere')], tmp);
     assert(missing.status !== 0, 'stats on a nonexistent graph should exit non-zero');
     assert(String(missing.stderr).length > 0 || String(missing.stdout).length > 0, 'stats on a nonexistent graph should print an error');
+    assert(!(0, fs_1.existsSync)((0, path_1.join)(tmp, 'nowhere', '.graphify')), 'failed stats must not create a .graphify directory');
+    // 8. the MCP server refuses to serve (or create) a graph that was never built
+    const mcpMissing = runCli(['mcp', '--graph', (0, path_1.join)(tmp, 'nowhere2')], tmp);
+    assert(mcpMissing.status !== 0, 'mcp on a nonexistent graph should exit non-zero');
+    assert(!(0, fs_1.existsSync)((0, path_1.join)(tmp, 'nowhere2', '.graphify')), 'failed mcp must not create a .graphify directory');
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed > 0) {
         process.exit(1);
