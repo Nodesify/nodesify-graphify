@@ -75,7 +75,8 @@ Instead, use these graphify commands:
 | "Where is X implemented?" | `nodesify-graphify query "X"` |
 | "How does X connect to Y?" | `nodesify-graphify path "X" "Y"` |
 | "What does X do?" | `nodesify-graphify explain "X"` |
-| "What is the architecture?" | Read `.graphify/graph_report.md` |
+| "What is the architecture?" | Read `.graphify/wiki/index.md` if present, else `.graphify/graph_report.md` |
+| "Give me a navigable overview" | `nodesify-graphify wiki --graph .` then read `.graphify/wiki/index.md` |
 | "Find all references to X" | `nodesify-graphify query "X" --depth 3` |
 | "What community is X in?" | `nodesify-graphify explain "X"` |
 
@@ -188,6 +189,14 @@ Aider-style repo map: files ranked by PageRank over the reference graph, with ea
 nodesify-graphify map --budget 2000
 ```
 
+### Semantic layer (local embeddings)
+
+When the graph was built with `run --embed`, `query` automatically merges semantic recall with token matching — conceptual questions with zero string overlap still find their symbols, and `similar_to` edges link related concepts across files. No API key; the model is downloaded once and cached (`GRAPHIFY_EMBED_CACHE_DIR` overrides the location).
+
+### Learning from usage
+
+Repeated queries leave a trace: node pairs that keep coming up across distinct questions are promoted to `learned` edges on the next `run`/`update`. The graph gets better connected in exactly the places the codebase is actually explored.
+
 ### MCP server
 
 `nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph` (supports `cursor` continuation and `detail` tiers), `repo_map`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.
@@ -203,11 +212,22 @@ Graph staleness check: fresh/stale/very_stale with age in minutes.
 
 ### `nodesify-graphify export [options]`
 
-Export graph to JSON, HTML, or GraphML.
+Export graph to JSON, HTML, GraphML, or Cypher (Neo4j).
 
 ```
 nodesify-graphify export --format html --out graph.html
 nodesify-graphify export --format graphml --out graph.graphml
+nodesify-graphify export --format cypher --out graphify.cypher   # idempotent MERGE script for Neo4j
+```
+
+### `nodesify-graphify wiki [options]`
+
+Wikipedia-style markdown wiki of the graph: `index.md` plus one article per community and per god node, cross-linked with relative markdown links. Readable by any agent without the CLI — point an agent at `.graphify/wiki/index.md` and it navigates by reading files.
+
+```
+nodesify-graphify wiki --graph .              # writes .graphify/wiki/
+nodesify-graphify wiki --out docs/wiki        # e.g. for GitHub
+nodesify-graphify wiki --format obsidian --out my-vault   # Obsidian vault + canvas
 ```
 
 ## Post-Edit Protocol

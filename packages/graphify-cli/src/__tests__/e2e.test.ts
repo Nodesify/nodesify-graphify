@@ -80,6 +80,30 @@ if (!existsSync(cliEntry) || !existsSync(nativeBin)) {
   const parsed = JSON.parse(readFileSync(outPath, 'utf-8'));
   assert(Array.isArray(parsed.nodes) && parsed.nodes.length > 0, 'export json should contain nodes');
 
+  // 6a. cypher export writes an idempotent Neo4j import script
+  const cypherPath = join(tmp, 'graph.cypher');
+  const exportCypher = runCli(['export', '--graph', '.', '--format', 'cypher', '--out', cypherPath], project);
+  assert(exportCypher.status === 0, `export cypher should exit 0, got ${exportCypher.status}`);
+  const cypher = readFileSync(cypherPath, 'utf-8');
+  assert(cypher.includes('MERGE (n:'), 'cypher export should MERGE nodes');
+  assert(cypher.includes('MERGE (a)-[r:'), 'cypher export should MERGE relationships');
+  assert(/Reduction:\s+[0-9.]+x/.test(run.stdout), 'run should print the token reduction benchmark');
+
+  // 6b. wiki writes an agent-crawlable markdown wiki with a valid index
+  const wiki = runCli(['wiki', '--graph', '.'], project);
+  assert(wiki.status === 0, `wiki should exit 0, got ${wiki.status}: ${String(wiki.stderr).slice(0, 200)}`);
+  const wikiIndex = join(project, '.graphify', 'wiki', 'index.md');
+  assert(existsSync(wikiIndex), 'wiki should create .graphify/wiki/index.md');
+  const index = readFileSync(wikiIndex, 'utf-8');
+  assert(index.includes('## Communities'), 'wiki index should list communities');
+  // every relative link in the index resolves to a real article
+  const links = [...index.matchAll(/\]\(([^)]+\.md)\)/g)].map((m) => m[1]);
+  assert(links.length > 0, 'wiki index should contain article links');
+  for (const link of links) {
+    assert(existsSync(join(project, '.graphify', 'wiki', link)),
+      `wiki index link should resolve: ${link}`);
+  }
+
   // 7. a missing graph fails with a non-zero exit, not a silent success
   const missing = runCli(['stats', '--graph', join(tmp, 'nowhere')], tmp);
   assert(missing.status !== 0, 'stats on a nonexistent graph should exit non-zero');

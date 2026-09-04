@@ -1,6 +1,16 @@
 # nodesify-graphify
 
-Turn any folder into a queryable knowledge graph. Rust core, Node.js CLI.
+Understand a codebase before you touch it. `nodesify-graphify` turns any folder into a queryable knowledge graph — deterministic AST extraction in Rust, optional local-embedding semantics, zero API keys, everything on your machine.
+
+You drop into an unfamiliar repo and need to know: what is load-bearing here, what breaks if I change this, where does auth live, how do these two modules connect. Reading everything costs the whole context window. The graph answers in ~3,000 tokens — **measured** at **73–79x fewer tokens per query** on real repos (printed honestly after every run, computed from real file sizes vs actual query output).
+
+Three things a folder full of files can't give you:
+
+1. **Structure that survives the session** — hub files, god nodes, communities, and the blast radius of any change, stored in SQLite and refreshed incrementally as code changes.
+2. **An honest audit trail** — every edge is labeled EXTRACTED / INFERRED / AMBIGUOUS with a numeric confidence score. You always know what was found in the source versus deduced, and `--detail high` filters to only declared facts.
+3. **Answers for agents and humans** — query it from the CLI, from any AI agent via MCP, or just read the exported markdown wiki with plain file links.
+
+[Worked examples with honest reviews](worked/) — the tool run on itself and on its Python ancestor, including what the graph got *wrong*.
 
 ## Install
 
@@ -9,6 +19,16 @@ npm install -g @nodesify/graphify
 ```
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
+
+## What's new in 0.8.0
+
+- **Markdown wiki export** — `wiki` / `run --wiki`: an agent-crawlable wiki (`index.md` + one article per community and god node, relative markdown links GitHub and Obsidian both navigate); `update` regenerates it so it never drifts stale
+- **Obsidian vault export** — `wiki --format obsidian`: per-node notes with frontmatter tags and `[[wikilinks]]`, community overviews, and a `graphify.canvas` (2,040 notes + 5,000 canvas edges on this repo)
+- **Local semantic layer** — `run --embed`: a local embedding model (no API key, one-time ~90 MB download, offline after) adds `similar_to` edges across files and embedding-backed query recall; communities consolidated 401 → 194 on this repo
+- **Learning from usage** — repeated queries promote recurring node pairs into `learned` edges; the graph compounds in value the more it is used
+- **Neo4j export** — `export --format cypher`: idempotent MERGE script for cypher-shell
+- **Token benchmark** — every run prints measured corpus-vs-query tokens (82x on this repo); worked examples with honest reviews under `worked/`
+- **Security** — esbuild advisory pinned out, Windows reserved-name guards in exports, learned-edge promotion hardened against stale node references
 
 ## What's new in 0.7.0
 
@@ -45,7 +65,9 @@ Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
 ```bash
 nodesify-graphify run <path>                            # Full pipeline: detect → extract → build → cluster → analyze → report
-nodesify-graphify update <path>                         # Incremental rebuild (only changed files)
+nodesify-graphify run <path> --wiki                     # ...also export a markdown wiki to .graphify/wiki
+nodesify-graphify run <path> --embed                    # ...also compute local embeddings (similar_to edges + semantic query recall)
+nodesify-graphify update <path>                         # Incremental rebuild (only changed files; regenerates an existing wiki)
 nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--detail high] [--cursor N] [--graph .]  # BFS/DFS traversal
@@ -55,10 +77,11 @@ nodesify-graphify map [--budget 2000] [--graph .]       # PageRank-ranked repo m
 nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
+nodesify-graphify wiki [--out .graphify/wiki] [--max-nodes 25] [--graph .]  # Wikipedia-style markdown wiki (agent-crawlable)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
 nodesify-graphify status [--graph .]                    # Graph health and staleness
-nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] [--mode standard|large] # Export graph; HTML defaults to standard
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml|cypher] [--mode standard|large] # Export graph; HTML defaults to standard
 nodesify-graphify cluster-only <path>                   # Re-cluster + analyze + report without re-extracting
 nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
 nodesify-graphify diff <pathA> <pathB>                  # Compare two graphs
@@ -92,13 +115,55 @@ nodesify-graphify export --graph . --format html --mode large --out graph-view.h
 
 Large mode precomputes node positions, disables physics, shows the highest-degree nodes first, supports debounced search and a “Show all nodes” toggle, caps the community legend, and disables expensive edge arrows for very large graphs. JSON and GraphML exports are unaffected by `--mode`.
 
+`--format cypher` writes an idempotent Neo4j import script (MERGE statements — safe to re-run):
+
+```bash
+nodesify-graphify export --graph . --format cypher --out graphify.cypher
+cypher-shell -u neo4j -p <password> -f graphify.cypher
+```
+
+### Learning from usage
+
+The graph compounds in value as you query it. Every query records which (seed, discovered) node pairs its traversal connected; when the same pair recurs across **at least 2 distinct questions with 3+ total hits**, the next `run`/`update` promotes it to a `learned` edge (INFERRED, hits-scored, provenance `query_history`). Learned edges flow into clustering, analysis, and every export — the graph remembers which connections you actually keep asking about. High-fidelity traversals (`--detail high`) can filter them like any INFERRED fact.
+
+### Token reduction benchmark
+
+Every `run` and `update` prints an honest cost measurement: corpus tokens (the real file sizes from the manifest) versus the tokens a graph query actually returns, sampled over five representative questions. On this repository: ~221,000 corpus tokens vs ~3,000 per query — **73x fewer tokens per query**. On tiny corpora it will honestly report <1x; there the graph's value is structure, not compression, and the output says so.
+
+### Wiki export
+
+`nodesify-graphify wiki` writes a Wikipedia-style markdown wiki into `.graphify/wiki/`: an `index.md` entry point, one article per community (key concepts ranked by connections, cross-community links, source files, EXTRACTED/INFERRED/AMBIGUOUS audit trail), and one article per god node (signature, connections grouped by relation). Articles cross-link with relative markdown links, so any agent — or GitHub, or Obsidian — can navigate the graph by reading files instead of running queries:
+
+```bash
+nodesify-graphify run . --wiki          # build graph + wiki in one step
+nodesify-graphify wiki --graph .        # (re)generate the wiki any time
+nodesify-graphify wiki --out docs/wiki  # export into docs/ for GitHub
+```
+
+`update` regenerates an existing wiki automatically, so it never drifts stale.
+
+`--format obsidian` writes an Obsidian vault instead: one note per node with `graphify/*` + community tags and `[[wikilinks]]` to neighbors, `_COMMUNITY_*.md` overview notes, and a `graphify.canvas` (communities as colored groups, nodes as cards). Open the output directory as a vault in Obsidian:
+
+```bash
+nodesify-graphify wiki --format obsidian --out my-vault
+```
+
 ### .graphifyignore
 
 Place a `.graphifyignore` file in your project root (gitignore syntax) to exclude files from the graph.
 
 ## Semantic enrichment
 
-Set any LLM backend and the pipeline enriches docs, papers, and images into concept nodes automatically:
+Two independent semantic layers, both optional:
+
+**Local embeddings (no API key)** — `run --embed` downloads a small local model once (~90 MB, then offline forever) and computes vector embeddings for every node. This adds:
+
+- `similar_to` edges (INFERRED, cosine-scored) linking semantically related symbols across files — they flow into clustering, surprising connections, and every export
+- embedding-backed query recall: `query` merges semantic candidates with token matching, so conceptual questions with zero string overlap still find their symbols
+
+Once embeddings exist, every `run`/`update` refreshes them incrementally (offline — the refresh never downloads), and `query` picks them up automatically. Override the model cache location with `GRAPHIFY_EMBED_CACHE_DIR`.
+
+**LLM enrichment** — set any LLM backend and the pipeline enriches docs, papers, and images into concept nodes automatically:
 
 | Backend | Env vars | Vision |
 |---------|----------|--------|

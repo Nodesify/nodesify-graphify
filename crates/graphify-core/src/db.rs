@@ -76,6 +76,29 @@ CREATE TABLE IF NOT EXISTS communities (
 );
 ";
 
+const SCHEMA_V5: &str = "
+CREATE TABLE IF NOT EXISTS node_embeddings (
+    node_id TEXT PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+    dim INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    model TEXT NOT NULL,
+    embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_node_embeddings_model ON node_embeddings(model);
+";
+
+const SCHEMA_V6: &str = "
+CREATE TABLE IF NOT EXISTS query_pairs (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    question TEXT NOT NULL,
+    hits INTEGER NOT NULL DEFAULT 1,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (source, target, question)
+);
+";
+
 /// Run any pending schema migrations.
 fn run_migrations(conn: &Connection) -> Result<()> {
     let version: i64 = conn
@@ -113,6 +136,24 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE edges ADD COLUMN source_line INTEGER;")?;
         conn.execute(
             "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '4')",
+            [],
+        )?;
+    }
+    if version < 5 {
+        // v5: local-embedding vectors for semantic similarity edges and
+        // embedding-backed query recall (see graphify-embed).
+        conn.execute_batch(SCHEMA_V5)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '5')",
+            [],
+        )?;
+    }
+    if version < 6 {
+        // v6: query feedback loop — seed/visited node pairs per question,
+        // promoted to `learned` edges when they recur across questions.
+        conn.execute_batch(SCHEMA_V6)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '6')",
             [],
         )?;
     }
@@ -214,7 +255,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "4");
+        assert_eq!(version, "6");
         conn.execute(
             "INSERT INTO nodes (id, label, file_type, source_file, signature) VALUES ('a', 'A', 'code', 'f.rs', 'fn a()')",
             [],
@@ -226,6 +267,37 @@ mod tests {
             })
             .unwrap();
         assert_eq!(sig.as_deref(), Some("fn a()"));
+    }
+
+    #[test]
+    fn schema_v5_has_node_embeddings() {
+        let conn = open_db_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES ('a', 'A', 'code', 'f.rs')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO node_embeddings (node_id, dim, embedding, model, embedded_at)
+             VALUES ('a', 2, X'0000803F' || X'00000000', 'test-model', '2026-01-01')",
+            [],
+        )
+        .unwrap();
+        let (dim, model): (i64, String) = conn
+            .query_row(
+                "SELECT dim, model FROM node_embeddings WHERE node_id = 'a'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((dim, model.as_str()), (2, "test-model"));
+        // ON DELETE CASCADE drops vectors with their nodes
+        conn.execute("DELETE FROM nodes WHERE id = 'a'", [])
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM node_embeddings", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

@@ -687,13 +687,72 @@ pub fn query_graph(
     min_strength: f64,
     cursor: usize,
 ) -> graphify_core::Result<(String, usize, usize, Option<usize>)> {
+    query_graph_with_semantic(
+        db,
+        db_path,
+        question,
+        mode,
+        depth,
+        budget,
+        directed,
+        min_strength,
+        cursor,
+        &[],
+    )
+}
+
+/// Rescale a cosine in [0.55, 1.0] into the seed-score scale: a perfect
+/// semantic match (1.0) lands just under an exact label match (1.0+),
+/// mid-range matches land near the path/docstring layer.
+fn semantic_seed_score(cosine: f64) -> f64 {
+    ((cosine - 0.55) * 1.5).clamp(0.0, 0.67)
+}
+
+/// `query_graph` plus semantic seed candidates: `(node_id, cosine)` pairs
+/// from an embedding model. Semantic matches merge with token scoring by
+/// taking each node's best score, so a purely semantic match still seeds
+/// the traversal — how "auth flow" finds `SessionMiddleware` with zero
+/// string overlap — while exact label matches keep outranking it.
+#[allow(clippy::too_many_arguments)]
+pub fn query_graph_with_semantic(
+    db: &Connection,
+    db_path: &str,
+    question: &str,
+    mode: &str,
+    depth: usize,
+    budget: i64,
+    directed: bool,
+    min_strength: f64,
+    cursor: usize,
+    semantic: &[(String, f64)],
+) -> graphify_core::Result<(String, usize, usize, Option<usize>)> {
     let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
         return Ok(("No nodes in graph.".to_string(), 0, 0, None));
     }
 
     let terms: Vec<String> = question.split_whitespace().map(|s| s.to_string()).collect();
-    let scored = score_nodes(&loaded, &terms);
+    let mut scored = score_nodes(&loaded, &terms);
+
+    // Merge semantic candidates: max(token score, rescaled cosine) per node.
+    if !semantic.is_empty() {
+        let mut by_index: std::collections::HashMap<NodeIndex, f64> =
+            scored.iter().map(|(s, i)| (*i, *s)).collect();
+        for (node_id, cosine) in semantic {
+            if let Some(&idx) = loaded.id_to_idx.get(node_id) {
+                let entry = by_index.entry(idx).or_insert(0.0);
+                *entry = (*entry).max(semantic_seed_score(*cosine));
+            }
+        }
+        scored = by_index.into_iter().map(|(i, s)| (s, i)).collect();
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| loaded.graph[a.1].label.cmp(&loaded.graph[b.1].label))
+                .then_with(|| loaded.graph[a.1].id.cmp(&loaded.graph[b.1].id))
+        });
+    }
+
     if scored.is_empty() {
         let suggestions = nearest_labels(&loaded, question, SUGGESTION_COUNT);
         let msg = if suggestions.is_empty() {
@@ -736,8 +795,127 @@ pub fn query_graph(
     }
 
     log_query(db, question, &result_text);
+    record_query_pairs(db, &loaded, &seed_nodes, &visited, question);
 
     Ok((result_text, visited.len(), edges_seen.len(), next_cursor))
+}
+
+/// Feedback loop bookkeeping: for one answered query, record which
+/// (seed, discovered) node pairs the traversal connected. Pairs recurring
+/// across DISTINCT questions later promote into `learned` edges — the
+/// graph remembers which connections users actually keep asking about.
+fn record_query_pairs(
+    db: &Connection,
+    loaded: &LoadedGraph,
+    seeds: &[NodeIndex],
+    visited: &HashSet<NodeIndex>,
+    question: &str,
+) {
+    let question: String = question
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(200)
+        .collect();
+    if question.is_empty() {
+        return;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+
+    // Top seeds by rank; discoveries ranked by degree — the load-bearing
+    // nodes the question actually reached.
+    let top_seeds: Vec<&NodeIndex> = seeds.iter().take(3).collect();
+    let mut discoveries: Vec<(usize, &NodeIndex)> = visited
+        .iter()
+        .filter(|idx| !seeds.contains(idx))
+        .map(|idx| (loaded.graph.neighbors(*idx).count(), idx))
+        .collect();
+    discoveries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    let top_discoveries: Vec<&NodeIndex> =
+        discoveries.iter().map(|(_, idx)| *idx).take(5).collect();
+
+    for seed in &top_seeds {
+        for discovery in &top_discoveries {
+            let (source, target) = if loaded.graph[**seed].id <= loaded.graph[**discovery].id {
+                (&loaded.graph[**seed].id, &loaded.graph[**discovery].id)
+            } else {
+                (&loaded.graph[**discovery].id, &loaded.graph[**seed].id)
+            };
+            let _ = db.execute(
+                "INSERT INTO query_pairs (source, target, question, hits, first_seen, last_seen)
+                 VALUES (?1, ?2, ?3, 1, ?4, ?4)
+                 ON CONFLICT (source, target, question)
+                 DO UPDATE SET hits = hits + 1, last_seen = ?4",
+                rusqlite::params![source, target, question, ts],
+            );
+        }
+    }
+}
+
+/// Promote recurring query pairs into `learned` edges: a pair qualifies
+/// when it was connected by at least `min_questions` DISTINCT questions
+/// with at least `min_hits` total repetitions. Existing learned edges are
+/// regenerated (idempotent). Learned edges carry confidence INFERRED with
+/// a hits-based score, so `--detail high` traversals can filter them.
+/// Returns the number of learned edges materialized.
+pub fn promote_learned_edges(
+    db: &Connection,
+    min_questions: usize,
+    min_hits: usize,
+) -> graphify_core::Result<usize> {
+    // Drop pairs whose endpoints were deleted by later builds — nodes come
+    // and go with files, and a stale reference would violate the edges FK.
+    db.execute(
+        "DELETE FROM query_pairs WHERE source NOT IN (SELECT id FROM nodes)
+         OR target NOT IN (SELECT id FROM nodes)",
+        [],
+    )?;
+
+    let pairs: Vec<(String, String, i64)> = {
+        let mut stmt = db.prepare(
+            "SELECT source, target, SUM(hits) FROM query_pairs
+             GROUP BY source, target
+             HAVING COUNT(DISTINCT question) >= ?1 AND SUM(hits) >= ?2",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![min_questions as i64, min_hits as i64],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        rows.flatten().collect()
+    };
+
+    db.execute(
+        "DELETE FROM edges WHERE relation = 'learned' AND source_file = 'query_history'",
+        [],
+    )?;
+
+    let tx = db.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file)
+             VALUES (?1, ?2, 'learned', 'INFERRED', ?3, 'query_history')",
+        )?;
+        for (source, target, hits) in &pairs {
+            // 3 hits -> 0.5, 10+ hits -> 1.0: recency-weighted importance
+            // without letting a single hot pair dominate high-fidelity views.
+            let score = ((*hits as f64 - 1.0) / 9.0).clamp(0.1, 1.0);
+            stmt.execute(rusqlite::params![source, target, score])?;
+        }
+    }
+    tx.commit()?;
+    Ok(pairs.len())
 }
 
 pub fn find_shortest_path(
@@ -1023,6 +1201,182 @@ pub struct ExplainResult {
 mod tests {
     use super::*;
     use graphify_core::db::open_db_in_memory;
+
+    #[test]
+    fn semantic_seeds_match_without_string_overlap() {
+        // "auth flow" shares no tokens with "SessionMiddleware" — token
+        // scoring finds nothing; a semantic candidate must seed the traversal.
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('m', 'SessionMiddleware', 'code', 'src/session.rs'),
+                ('v', 'validateSession()', 'code', 'src/session.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('m', 'v', 'defines', 'EXTRACTED', 'src/session.rs');",
+        )
+        .unwrap();
+
+        // token-only: no match (unique db_path — the graph cache is keyed
+        // by db_path, and ":memory:" would collide across tests)
+        let (text, nodes, _, _) = query_graph(
+            &db,
+            "mem-semantic-test",
+            "auth flow",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+        )
+        .unwrap();
+        assert!(
+            text.contains("No matching nodes"),
+            "token-only should miss: {text}"
+        );
+        assert_eq!(nodes, 0);
+
+        // with a semantic candidate the traversal runs
+        let semantic = vec![("m".to_string(), 0.9), ("v".to_string(), 0.7)];
+        let (text, nodes, _, _) = query_graph_with_semantic(
+            &db,
+            "mem-semantic-test",
+            "auth flow",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+            &semantic,
+        )
+        .unwrap();
+        assert!(
+            text.contains("SessionMiddleware"),
+            "semantic seed should drive traversal: {text}"
+        );
+        assert!(nodes > 0);
+    }
+
+    #[test]
+    fn semantic_score_rescales_below_exact_label_match() {
+        // a perfect cosine (1.0) caps at 0.67 — under an exact label hit
+        assert!(semantic_seed_score(1.0) < 1.0);
+        assert!((semantic_seed_score(1.0) - 0.675).abs() < 0.01);
+        // below the noise floor it contributes nothing
+        assert_eq!(semantic_seed_score(0.55), 0.0);
+        assert_eq!(semantic_seed_score(0.3), 0.0);
+    }
+
+    #[test]
+    fn queries_record_pairs_and_promotion_gates_on_distinct_questions() {
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('auth', 'AuthService', 'code', 'src/auth.rs'),
+                ('sess', 'SessionManager', 'code', 'src/sess.rs'),
+                ('tok', 'TokenValidator', 'code', 'src/tok.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('auth', 'sess', 'calls', 'EXTRACTED', 'src/auth.rs'),
+                ('sess', 'tok', 'calls', 'EXTRACTED', 'src/sess.rs');",
+        )
+        .unwrap();
+
+        // two distinct questions whose traversals connect the same pair
+        // (both must token-match: unmatched questions return early)
+        for question in ["session handling", "session validation"] {
+            query_graph(
+                &db,
+                "mem-pairs-test",
+                question,
+                "bfs",
+                2,
+                500,
+                false,
+                0.0,
+                0,
+            )
+            .unwrap();
+        }
+
+        let recorded: i64 = db
+            .query_row("SELECT COUNT(*) FROM query_pairs", [], |r| r.get(0))
+            .unwrap();
+        assert!(recorded > 0, "queries should record seed/discovery pairs");
+
+        // threshold not met yet: 2 distinct questions but each hit once
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(promoted, 0, "needs min_hits across distinct questions");
+
+        // one more repeat pushes hits over the bar
+        query_graph(
+            &db,
+            "mem-pairs-test",
+            "session validation",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+        )
+        .unwrap();
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert!(
+            promoted > 0,
+            "recurring pairs across questions should promote"
+        );
+
+        let (relation, confidence, score, source): (String, String, f64, String) = db
+            .query_row(
+                "SELECT relation, confidence, confidence_score, source_file
+                 FROM edges WHERE relation = 'learned' LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(relation, "learned");
+        assert_eq!(confidence, "INFERRED");
+        assert_eq!(source, "query_history");
+        assert!(score > 0.0 && score <= 1.0);
+
+        // promotion is idempotent — regenerate without duplicating
+        let again = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(again, promoted);
+        let count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM edges WHERE relation = 'learned'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count as usize, promoted);
+    }
+
+    #[test]
+    fn promotion_skips_pairs_whose_nodes_were_deleted() {
+        // query_pairs rows can outlive their nodes (files removed later) —
+        // promotion must drop them, not die on the edges foreign key.
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('a', 'Alpha', 'code', 'a.rs'),
+                ('b', 'Beta', 'code', 'b.rs');
+            INSERT INTO query_pairs (source, target, question, hits, first_seen, last_seen) VALUES
+                ('a', 'b', 'q1', 2, '1', '1'),
+                ('a', 'b', 'q2', 2, '1', '1'),
+                ('a', 'ghost', 'q1', 5, '1', '1'),
+                ('ghost', 'b', 'q2', 5, '1', '1');",
+        )
+        .unwrap();
+
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(promoted, 1, "only the (a,b) pair qualifies and inserts");
+        let stale: i64 = db
+            .query_row("SELECT COUNT(*) FROM query_pairs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stale, 2, "orphaned pairs are cleaned up");
+    }
 
     fn seed(db: &Connection) -> String {
         db.execute_batch(

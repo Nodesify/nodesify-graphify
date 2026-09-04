@@ -1,6 +1,10 @@
+pub mod benchmark;
+pub mod export_cypher;
 pub mod export_graphml;
 pub mod export_html;
+pub mod export_obsidian;
 pub mod export_tree;
+pub mod export_wiki;
 pub mod merge;
 pub mod pipeline;
 pub mod query;
@@ -119,15 +123,20 @@ fn min_strength_for(detail: &Option<String>) -> f64 {
 }
 
 #[napi]
-pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
+pub fn run_pipeline(
+    root: String,
+    no_dedup: Option<bool>,
+    embed: Option<bool>,
+) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
         &root_pb
             .canonicalize()
             .map_err(|e| napi::Error::from_reason(e.to_string()))?,
     )?);
-    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result =
+        pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false), embed.unwrap_or(false))
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -140,15 +149,20 @@ pub fn run_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<Pipeli
 /// Incremental rebuild — intentionally reuses run_pipeline because the pipeline
 /// internally detects changed files via SHA-256 manifest and skips unchanged ones.
 #[napi]
-pub fn update_pipeline(root: String, no_dedup: Option<bool>) -> napi::Result<PipelineResultJs> {
+pub fn update_pipeline(
+    root: String,
+    no_dedup: Option<bool>,
+    embed: Option<bool>,
+) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
     let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
         &root_pb
             .canonicalize()
             .map_err(|e| napi::Error::from_reason(e.to_string()))?,
     )?);
-    let result = pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false))
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result =
+        pipeline::run_pipeline_with(&root_pb, !no_dedup.unwrap_or(false), embed.unwrap_or(false))
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
     Ok(PipelineResultJs {
         nodes_added: result.build_result.nodes_added as i64,
@@ -216,6 +230,25 @@ pub fn export_graphml_cmd(root: String, out_path: String) -> napi::Result<()> {
 }
 
 #[napi]
+pub fn export_cypher_cmd(root: String, out_path: String) -> napi::Result<i32> {
+    let db = pipeline::load_graph_db(&PathBuf::from(&root))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let count = export_cypher::export_cypher(&db, &PathBuf::from(&out_path))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+/// Token-reduction benchmark block for the CLI to print after a pipeline
+/// run. Empty string when no sample question matches the graph.
+#[napi]
+pub fn token_benchmark(root: String) -> napi::Result<String> {
+    let root_pb = PathBuf::from(&root)
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    benchmark::benchmark_for_root(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+#[napi]
 #[allow(clippy::too_many_arguments)]
 pub fn query_graph(
     root: String,
@@ -236,7 +269,23 @@ pub fn query_graph(
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
-    let (text, node_count, edge_count, next_cursor) = query::query_graph(
+
+    // Hybrid recall: when node embeddings exist and the model is cached,
+    // semantic candidates rescue questions with zero string overlap.
+    // Both gates are required so a query never downloads a model.
+    let semantic: Vec<(String, f64)> =
+        if graphify_embed::has_embeddings(&db) && graphify_embed::model_cached() {
+            graphify_embed::load_embedder()
+                .ok()
+                .and_then(|mut embedder| {
+                    graphify_embed::semantic_scores(&db, &mut embedder, &question).ok()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+    let (text, node_count, edge_count, next_cursor) = query::query_graph_with_semantic(
         &db,
         &db_path_str,
         &question,
@@ -246,6 +295,7 @@ pub fn query_graph(
         directed.unwrap_or(false),
         min_strength_for(&detail),
         cursor.unwrap_or(0).max(0) as usize,
+        &semantic,
     )
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let graph_built_at = db
@@ -404,6 +454,76 @@ pub fn export_tree(root: String, out: String, max_children: Option<i32>) -> napi
     Ok(count as i32)
 }
 
+#[napi]
+pub fn export_wiki(root: String, out_dir: String, max_key_nodes: Option<i32>) -> napi::Result<i32> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Canonicalized so stored absolute source paths strip to root-relative.
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let out_path = Path::new(&out_dir);
+    let out_path = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        root_pb.join(out_path)
+    };
+    let count = export_wiki::export_wiki(
+        &db,
+        &out_path,
+        max_key_nodes.unwrap_or(25).max(1) as usize,
+        Some(&root_pb),
+    )
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+#[napi]
+pub fn export_obsidian(root: String, out_dir: String) -> napi::Result<i32> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let out_path = Path::new(&out_dir);
+    let out_path = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        root_pb.join(out_path)
+    };
+    let count = export_obsidian::export_obsidian(&db, &out_path)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+/// Debug/introspection: semantic candidates for a question against stored
+/// node embeddings. Empty when embeddings or the cached model are absent.
+#[napi(object)]
+pub struct SemanticCandidateJs {
+    pub node_id: String,
+    pub cosine: f64,
+}
+
+#[napi]
+pub fn semantic_candidates(
+    root: String,
+    question: String,
+) -> napi::Result<Vec<SemanticCandidateJs>> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    if !graphify_embed::has_embeddings(&db) || !graphify_embed::model_cached() {
+        return Ok(Vec::new());
+    }
+    let mut embedder =
+        graphify_embed::load_embedder().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let scores = graphify_embed::semantic_scores(&db, &mut embedder, &question)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(scores
+        .into_iter()
+        .map(|(node_id, cosine)| SemanticCandidateJs { node_id, cosine })
+        .collect())
+}
+
 #[napi(object)]
 pub struct IngestResultJs {
     pub saved_path: String,
@@ -439,7 +559,7 @@ pub fn ingest_url(
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     // Incremental update picks the new file up (hash manifest sees it as new)
-    pipeline::run_pipeline_with(&root_pb, true)
+    pipeline::run_pipeline_with(&root_pb, true, false)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     query::invalidate_graph_cache(&db_path_str);
 

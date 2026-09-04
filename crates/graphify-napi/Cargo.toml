@@ -1,6 +1,6 @@
 [package]
 name = "graphify-napi"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 
 [lib]
@@ -21,6 +21,7 @@ graphify-mcp = { workspace = true }
 graphify-ingest = { workspace = true }
 graphify-paths = { workspace = true }
 graphify-semantic = { workspace = true }
+graphify-embed = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
