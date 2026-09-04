@@ -4,7 +4,7 @@ nodesify-graphify turns source code into a queryable knowledge graph. It uses AS
 
 ## Overview
 
-The project is structured as a Rust workspace with 8 domain-specific crates and a Node.js CLI.
+The project is structured as a Rust workspace with 14 domain-specific crates and a Node.js CLI.
 
 **Language**: Rust 2021
 **Build system**: Cargo + npm
@@ -13,42 +13,53 @@ The project is structured as a Rust workspace with 8 domain-specific crates and 
 ## Pipeline
 
 ```
-detect() → extract() → build() → cluster() → analyze() → report()
+detect() → extract() → enrich_with_semantics() → build() → dedup_nodes() → cluster() → analyze() → report()
 ```
 
 The pipeline is orchestrated in `crates/graphify-napi/src/pipeline.rs`.
 
 1.  **detect()** (`graphify-detect`): Discovers files, classifies them (Code, Document, etc.), and uses a SHA-256 manifest to identify changed files since the last run.
 2.  **extract()** (`graphify-extract`): Performs AST-based extraction using tree-sitter. Supports 21 languages with per-language configurations in `src/langs/`.
-3.  **build()** (`graphify-build`): Merges extracted nodes and edges into the SQLite graph database, handles deduplication and cross-file reference resolution.
-4.  **cluster()** (`graphify-cluster`): Performs community detection using the label propagation algorithm (via `petgraph`) and updates the `community` attribute on nodes.
-5.  **analyze()** (`graphify-analyze`): Analyzes the graph to find "god nodes" (high degree), surprising cross-community connections, and generates suggested questions.
-6.  **report()** (`graphify-report`): Generates a plain-language `graph_report.md` summarizing the graph's structure and insights.
+3.  **enrich_with_semantics()** (`graphify-semantic`, optional): When an LLM backend is configured, extracts topics, concepts, and entities (including from images via vision) concurrently and caches the results.
+4.  **build()** (`graphify-build`): Merges extracted nodes and edges into the SQLite graph database, handles deduplication and cross-file reference resolution.
+5.  **cluster()** (`graphify-cluster`): Performs community detection using the deterministic label propagation algorithm (via `petgraph`) and updates the `community` attribute on nodes.
+6.  **analyze()** (`graphify-analyze`): Analyzes the graph to find "god nodes" (call stubs excluded), surprising cross-community connections, blast radius, and generates suggested questions.
+7.  **report()** (`graphify-report`): Generates a plain-language `graph_report.md` summarizing the graph's structure and insights.
 
 ## Crate Responsibilities
 
 | Crate | Responsibility |
 | :--- | :--- |
-| `graphify-core` | Shared types (`FileType`, `Relation`, `Confidence`), `GraphifyError`, and SQLite schema definitions. |
+| `graphify-core` | Shared types (`FileType`, `GraphStats`), `GraphifyError`, SQLite schema + migrations, path validation, sanitization, sensitive-path denylist. |
+| `graphify-paths` | Path normalization and `.graphify` directory management. |
 | `graphify-detect` | File system scanning, `.graphifyignore` support, and incremental change detection via SHA-256 hashes. |
 | `graphify-extract` | Tree-sitter AST traversal logic. Each language defines its own extraction rules (nodes, edges, docstrings). |
-| `graphify-build` | Persistent graph assembly. Handles the SQL-heavy work of merging extractions into the database. |
-| `graphify-cluster` | Community detection and graph topology analysis using `petgraph`. |
-| `graphify-analyze` | Heuristic-based graph analysis for discovering architectural patterns and anomalies. |
+| `graphify-build` | Persistent graph assembly; entity dedup (MinHash/LSH blocking + Jaro-Winkler verify) in `dedup.rs`. |
+| `graphify-cluster` | Deterministic community detection (stable labels, cohesion, modularity) using `petgraph`. |
+| `graphify-analyze` | God nodes, ranked surprising cross-community connections, blast radius (`affected.rs`, reverse reachability). |
+| `graphify-query` | Query engine: BFS/DFS (optionally directed), shortest path, explain, token-based node scoring, per-path graph cache. |
+| `graphify-mcp` | MCP stdio server exposing the graph to AI agents. |
 | `graphify-report` | Markdown generation for the final user-facing report. |
-| `graphify-napi` | The bridge between Rust and Node.js. Includes the query engine (BFS/DFS, shortest path) and CLI command handlers. |
+| `graphify-semantic` | LLM semantic extraction, multi-backend (Claude / OpenAI-compatible / Gemini) with vision, chunking, and output validation. |
+| `graphify-ingest` | URL ingestion (arXiv/tweet/webpage/image) with SSRF protection. |
+| `graphify-pdf` | PDF text extraction. |
+| `graphify-napi` | The bridge between Rust and Node.js: pipeline orchestration, query surface, merge/diff, JSON/HTML/GraphML/tree export. |
 | `graphify-cli` | The Node.js-based user interface, responsible for argument parsing and installing AI skills. |
 
 ## Data Models
 
 ### SQLite Schema
 
-The graph is stored in `.graphify/db.sqlite` with the following key tables:
+The graph is stored in `.graphify/db.sqlite` with the following tables:
 
 *   `nodes`: `id`, `label`, `file_type`, `source_file`, `source_line`, `docstring`, `community`.
 *   `edges`: `source`, `target`, `relation`, `confidence`, `confidence_score`, `source_file`, `source_line`.
+*   `communities`: detected community labels and cohesion scores.
 *   `file_manifest`: `path`, `hash`, `last_extracted_at`. Used for incremental updates.
+*   `extraction_cache`: cached per-file extraction results keyed by content hash.
+*   `pipeline_runs`: one row per pipeline run (stage timing, version stamp).
 *   `query_history`: `question`, `answer`, `queried_at`.
+*   `_meta`: schema version and other bookkeeping.
 
 ### Relationship Types
 

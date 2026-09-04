@@ -71,6 +71,11 @@ cd packages/graphify-cli && npm run build  # CLI
 cargo test  # Each crate has unit tests using in-memory SQLite and tempfile fixtures
 ```
 
+### Other agent configs
+
+- `GEMINI.md` — equivalent config for Gemini CLI (synced with this file)
+- `packages/graphify-cli/skills/` — platform-specific skill files (skill.md for Codex, skill-codex.md, skill-gemini.md, skill-opencode.md)
+
 ### Knowledge graph
 
 This project has a nodesify-graphify knowledge graph at `.graphify/`.
