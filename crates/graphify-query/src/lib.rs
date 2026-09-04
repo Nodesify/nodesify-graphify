@@ -868,6 +868,14 @@ pub fn promote_learned_edges(
     min_questions: usize,
     min_hits: usize,
 ) -> graphify_core::Result<usize> {
+    // Drop pairs whose endpoints were deleted by later builds — nodes come
+    // and go with files, and a stale reference would violate the edges FK.
+    db.execute(
+        "DELETE FROM query_pairs WHERE source NOT IN (SELECT id FROM nodes)
+         OR target NOT IN (SELECT id FROM nodes)",
+        [],
+    )?;
+
     let pairs: Vec<(String, String, i64)> = {
         let mut stmt = db.prepare(
             "SELECT source, target, SUM(hits) FROM query_pairs
@@ -1292,6 +1300,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count as usize, promoted);
+    }
+
+    #[test]
+    fn promotion_skips_pairs_whose_nodes_were_deleted() {
+        // query_pairs rows can outlive their nodes (files removed later) —
+        // promotion must drop them, not die on the edges foreign key.
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('a', 'Alpha', 'code', 'a.rs'),
+                ('b', 'Beta', 'code', 'b.rs');
+            INSERT INTO query_pairs (source, target, question, hits, first_seen, last_seen) VALUES
+                ('a', 'b', 'q1', 2, '1', '1'),
+                ('a', 'b', 'q2', 2, '1', '1'),
+                ('a', 'ghost', 'q1', 5, '1', '1'),
+                ('ghost', 'b', 'q2', 5, '1', '1');",
+        )
+        .unwrap();
+
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(promoted, 1, "only the (a,b) pair qualifies and inserts");
+        let stale: i64 = db
+            .query_row("SELECT COUNT(*) FROM query_pairs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stale, 2, "orphaned pairs are cleaned up");
     }
 
     fn seed(db: &Connection) -> String {
