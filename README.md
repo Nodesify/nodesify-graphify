@@ -45,7 +45,8 @@ Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
 ```bash
 nodesify-graphify run <path>                            # Full pipeline: detect → extract → build → cluster → analyze → report
-nodesify-graphify update <path>                         # Incremental rebuild (only changed files)
+nodesify-graphify run <path> --wiki                     # ...also export a markdown wiki to .graphify/wiki
+nodesify-graphify update <path>                         # Incremental rebuild (only changed files; regenerates an existing wiki)
 nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
 nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--detail high] [--cursor N] [--graph .]  # BFS/DFS traversal
@@ -55,6 +56,7 @@ nodesify-graphify map [--budget 2000] [--graph .]       # PageRank-ranked repo m
 nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
+nodesify-graphify wiki [--out .graphify/wiki] [--max-nodes 25] [--graph .]  # Wikipedia-style markdown wiki (agent-crawlable)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
 nodesify-graphify status [--graph .]                    # Graph health and staleness
@@ -91,6 +93,18 @@ nodesify-graphify export --graph . --format html --mode large --out graph-view.h
 ```
 
 Large mode precomputes node positions, disables physics, shows the highest-degree nodes first, supports debounced search and a “Show all nodes” toggle, caps the community legend, and disables expensive edge arrows for very large graphs. JSON and GraphML exports are unaffected by `--mode`.
+
+### Wiki export
+
+`nodesify-graphify wiki` writes a Wikipedia-style markdown wiki into `.graphify/wiki/`: an `index.md` entry point, one article per community (key concepts ranked by connections, cross-community links, source files, EXTRACTED/INFERRED/AMBIGUOUS audit trail), and one article per god node (signature, connections grouped by relation). Articles cross-link with relative markdown links, so any agent — or GitHub, or Obsidian — can navigate the graph by reading files instead of running queries:
+
+```bash
+nodesify-graphify run . --wiki          # build graph + wiki in one step
+nodesify-graphify wiki --graph .        # (re)generate the wiki any time
+nodesify-graphify wiki --out docs/wiki  # export into docs/ for GitHub
+```
+
+`update` regenerates an existing wiki automatically, so it never drifts stale.
 
 ### .graphifyignore
 

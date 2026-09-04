@@ -95,15 +95,6 @@ function copyFile(src, dst) {
         fs.mkdirSync(dir, { recursive: true });
     }
     fs.copyFileSync(src, dst);
-    // Version stamp beside the installed skill file: written only into the
-    // same guarded destination that was just proven writable above.
-    const stampPath = path.join(dir, '.graphify_version');
-    if (path.isAbsolute(stampPath) && !stampPath.split(/[\\/]/).includes('..')) {
-        try {
-            fs.writeFileSync(stampPath, require('../../package.json').version + '\n', 'utf-8');
-        }
-        catch { /* ignore */ }
-    }
 }
 function writeInstallStamp(dir) {
     const stampPath = path.join(dir, '.graphify_version');

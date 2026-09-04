@@ -72,6 +72,19 @@ else {
     assert(exportJson.status === 0, `export json should exit 0, got ${exportJson.status}`);
     const parsed = JSON.parse((0, fs_1.readFileSync)(outPath, 'utf-8'));
     assert(Array.isArray(parsed.nodes) && parsed.nodes.length > 0, 'export json should contain nodes');
+    // 6b. wiki writes an agent-crawlable markdown wiki with a valid index
+    const wiki = runCli(['wiki', '--graph', '.'], project);
+    assert(wiki.status === 0, `wiki should exit 0, got ${wiki.status}: ${String(wiki.stderr).slice(0, 200)}`);
+    const wikiIndex = (0, path_1.join)(project, '.graphify', 'wiki', 'index.md');
+    assert((0, fs_1.existsSync)(wikiIndex), 'wiki should create .graphify/wiki/index.md');
+    const index = (0, fs_1.readFileSync)(wikiIndex, 'utf-8');
+    assert(index.includes('## Communities'), 'wiki index should list communities');
+    // every relative link in the index resolves to a real article
+    const links = [...index.matchAll(/\]\(([^)]+\.md)\)/g)].map((m) => m[1]);
+    assert(links.length > 0, 'wiki index should contain article links');
+    for (const link of links) {
+        assert((0, fs_1.existsSync)((0, path_1.join)(project, '.graphify', 'wiki', link)), `wiki index link should resolve: ${link}`);
+    }
     // 7. a missing graph fails with a non-zero exit, not a silent success
     const missing = runCli(['stats', '--graph', (0, path_1.join)(tmp, 'nowhere')], tmp);
     assert(missing.status !== 0, 'stats on a nonexistent graph should exit non-zero');

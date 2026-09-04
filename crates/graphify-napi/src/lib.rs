@@ -1,6 +1,7 @@
 pub mod export_graphml;
 pub mod export_html;
 pub mod export_tree;
+pub mod export_wiki;
 pub mod merge;
 pub mod pipeline;
 pub mod query;
@@ -401,6 +402,31 @@ pub fn export_tree(root: String, out: String, max_children: Option<i32>) -> napi
     let count =
         export_tree::export_tree(&db, &out_path, max_children.unwrap_or(40).max(1) as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+#[napi]
+pub fn export_wiki(root: String, out_dir: String, max_key_nodes: Option<i32>) -> napi::Result<i32> {
+    let root_pb = PathBuf::from(&root);
+    let db =
+        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Canonicalized so stored absolute source paths strip to root-relative.
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let out_path = Path::new(&out_dir);
+    let out_path = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        root_pb.join(out_path)
+    };
+    let count = export_wiki::export_wiki(
+        &db,
+        &out_path,
+        max_key_nodes.unwrap_or(25).max(1) as usize,
+        Some(&root_pb),
+    )
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(count as i32)
 }
 

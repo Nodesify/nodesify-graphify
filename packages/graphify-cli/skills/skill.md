@@ -75,7 +75,8 @@ Instead, use these graphify commands:
 | "Where is X implemented?" | `nodesify-graphify query "X"` |
 | "How does X connect to Y?" | `nodesify-graphify path "X" "Y"` |
 | "What does X do?" | `nodesify-graphify explain "X"` |
-| "What is the architecture?" | Read `.graphify/graph_report.md` |
+| "What is the architecture?" | Read `.graphify/wiki/index.md` if present, else `.graphify/graph_report.md` |
+| "Give me a navigable overview" | `nodesify-graphify wiki --graph .` then read `.graphify/wiki/index.md` |
 | "Find all references to X" | `nodesify-graphify query "X" --depth 3` |
 | "What community is X in?" | `nodesify-graphify explain "X"` |
 
@@ -208,6 +209,15 @@ Export graph to JSON, HTML, or GraphML.
 ```
 nodesify-graphify export --format html --out graph.html
 nodesify-graphify export --format graphml --out graph.graphml
+```
+
+### `nodesify-graphify wiki [options]`
+
+Wikipedia-style markdown wiki of the graph: `index.md` plus one article per community and per god node, cross-linked with relative markdown links. Readable by any agent without the CLI — point an agent at `.graphify/wiki/index.md` and it navigates by reading files.
+
+```
+nodesify-graphify wiki --graph .              # writes .graphify/wiki/
+nodesify-graphify wiki --out docs/wiki        # e.g. for GitHub
 ```
 
 ## Post-Edit Protocol
