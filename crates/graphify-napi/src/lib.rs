@@ -273,6 +273,7 @@ pub fn query_graph(
     // Hybrid recall: when node embeddings exist and the model is cached,
     // semantic candidates rescue questions with zero string overlap.
     // Both gates are required so a query never downloads a model.
+    #[cfg(feature = "embed")]
     let semantic: Vec<(String, f64)> =
         if graphify_embed::has_embeddings(&db) && graphify_embed::model_cached() {
             graphify_embed::load_embedder()
@@ -284,6 +285,8 @@ pub fn query_graph(
         } else {
             Vec::new()
         };
+    #[cfg(not(feature = "embed"))]
+    let semantic: Vec<(String, f64)> = Vec::new();
 
     let (text, node_count, edge_count, next_cursor) = query::query_graph_with_semantic(
         &db,
@@ -508,20 +511,28 @@ pub fn semantic_candidates(
     root: String,
     question: String,
 ) -> napi::Result<Vec<SemanticCandidateJs>> {
-    let root_pb = PathBuf::from(&root);
-    let db =
-        pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    if !graphify_embed::has_embeddings(&db) || !graphify_embed::model_cached() {
-        return Ok(Vec::new());
+    #[cfg(feature = "embed")]
+    {
+        let root_pb = PathBuf::from(&root);
+        let db = pipeline::load_graph_db(&root_pb)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        if !graphify_embed::has_embeddings(&db) || !graphify_embed::model_cached() {
+            return Ok(Vec::new());
+        }
+        let mut embedder =
+            graphify_embed::load_embedder().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let scores = graphify_embed::semantic_scores(&db, &mut embedder, &question)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        Ok(scores
+            .into_iter()
+            .map(|(node_id, cosine)| SemanticCandidateJs { node_id, cosine })
+            .collect())
     }
-    let mut embedder =
-        graphify_embed::load_embedder().map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let scores = graphify_embed::semantic_scores(&db, &mut embedder, &question)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    Ok(scores
-        .into_iter()
-        .map(|(node_id, cosine)| SemanticCandidateJs { node_id, cosine })
-        .collect())
+    #[cfg(not(feature = "embed"))]
+    {
+        let _ = (root, question);
+        Ok(Vec::new())
+    }
 }
 
 #[napi(object)]

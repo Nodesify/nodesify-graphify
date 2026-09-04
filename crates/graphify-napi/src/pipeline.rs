@@ -287,6 +287,7 @@ pub fn run_pipeline_with(
 /// `similar_to` edges. Runs when explicitly requested, or as a silent
 /// incremental refresh when embeddings already exist and the model cache is
 /// present (never downloads on its own). Explicit requests fail loudly.
+#[cfg(feature = "embed")]
 fn embed_stage(db: &Connection, requested: bool) -> graphify_core::Result<()> {
     if !requested && !graphify_embed::has_embeddings(db) {
         return Ok(());
@@ -321,6 +322,18 @@ fn embed_stage(db: &Connection, requested: bool) -> graphify_core::Result<()> {
             }
         }
     }
+}
+
+/// Builds without the `embed` feature (release targets with no prebuilt
+/// ONNX Runtime, e.g. x86_64-apple-darwin) reject --embed clearly.
+#[cfg(not(feature = "embed"))]
+fn embed_stage(_db: &Connection, requested: bool) -> graphify_core::Result<()> {
+    if requested {
+        return Err(graphify_core::GraphifyError::Graph(
+            "semantic embeddings are not supported in this build (no local model runtime for this platform)".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn run_pipeline_inner(
@@ -376,7 +389,10 @@ fn run_pipeline_inner(
     // A no-op pass (nothing changed) still runs the embed stage when it is
     // requested or embeddings already exist — otherwise `run --embed` on an
     // unchanged tree would never compute anything.
+    #[cfg(feature = "embed")]
     let embed_wanted = embed || graphify_embed::has_embeddings(db);
+    #[cfg(not(feature = "embed"))]
+    let embed_wanted = embed;
 
     if files_to_process.is_empty() && detected.removed.is_empty() && !embed_wanted {
         // Nothing changed on disk, but queries may have accumulated new
