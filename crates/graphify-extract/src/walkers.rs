@@ -2,6 +2,7 @@
 // functions), inline call-graph pass, rationale comments, and the
 // single-file driver that ties them together.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tree_sitter::{Node, Parser};
@@ -121,10 +122,119 @@ pub(crate) struct ExtractionState<'a> {
     pub nodes: Vec<ExtractedNode>,
     pub edges: Vec<ExtractedEdge>,
     pub current_class_id: Option<String>,
+    /// Identifier-shaped string literals already indexed for this file,
+    /// keyed by lowercased literal (one reference node per distinct literal
+    /// per file; the node itself is global across files).
+    pub string_refs_seen: HashSet<String>,
+}
+
+/// Maximum reference nodes extracted from one file — bounds the graph cost
+/// of string-literal indexing.
+const MAX_STRING_REFS_PER_FILE: usize = 40;
+
+/// True when a string literal is identifier-shaped enough to index as a
+/// reference: env-var style (`PLANE_URL`, `NODE_ENV`), snake_case keys
+/// (`needs_human`), and dotted/kebab/slash chains (`cli.command`,
+/// `harness/hr-101-fix-redis-leak`). Plain words ("retry", "error") are
+/// deliberately excluded — they are prose/UI text far more often than
+/// shared references, and would drown the graph in noise.
+fn is_reference_literal(s: &str) -> bool {
+    if s.is_empty() || s.len() < 3 || s.len() > 64 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    if bytes
+        .iter()
+        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_')
+        && s.contains('_')
+    {
+        return true;
+    }
+    if !bytes[0].is_ascii_lowercase() {
+        return false;
+    }
+    let mut separators = 0;
+    for &b in bytes {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' => {}
+            b'_' | b'.' | b'-' | b'/' => separators += 1,
+            _ => return false,
+        }
+    }
+    separators >= 1
+}
+
+/// Strip a string literal's raw source text down to its content: remove
+/// surrounding quotes/backticks and language prefixes (`r#"..."`, `b".."`).
+fn unquote_literal(raw: &str) -> &str {
+    let t = raw.trim();
+    let body = if t.len() > 2 && t.as_bytes()[0].is_ascii_alphabetic() {
+        &t[1..]
+    } else {
+        t
+    };
+    let bytes = body.as_bytes();
+    let quoted = bytes.len() >= 2
+        && matches!(
+            (bytes.first().copied(), bytes.last().copied()),
+            (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) | (Some(b'`'), Some(b'`'))
+        );
+    if quoted {
+        &body[1..body.len() - 1]
+    } else {
+        body
+    }
+}
+
+/// Collect an identifier-shaped string literal as a global reference node
+/// (`str::<literal>` id) plus a `references` edge from this file's node.
+fn collect_string_refs(state: &mut ExtractionState<'_>, node: &Node<'_>) {
+    if state.string_refs_seen.len() >= MAX_STRING_REFS_PER_FILE {
+        return;
+    }
+    let literal = unquote_literal(node_text(node, state.source));
+    if !is_reference_literal(literal) {
+        return;
+    }
+    if !state.string_refs_seen.insert(literal.to_lowercase()) {
+        return;
+    }
+    let line = node.start_position().row as u32;
+    let ref_id = make_node_id(&["str", literal.to_lowercase().as_str()]);
+    state.nodes.push(ExtractedNode {
+        id: ref_id.clone(),
+        label: literal.to_string(),
+        source_file: state.file_path.clone(),
+        source_line: Some(line),
+        docstring: None,
+        signature: None,
+        node_type: "reference".to_string(),
+    });
+    state.edges.push(ExtractedEdge {
+        source: state.file_id.clone(),
+        target: ref_id,
+        relation: "references".to_string(),
+        confidence: "EXTRACTED".to_string(),
+        confidence_score: Some(1.0),
+        source_file: state.file_path.clone(),
+        source_line: Some(line),
+    });
 }
 
 pub(crate) fn walk_structural<'a>(state: &mut ExtractionState<'a>, node: &Node<'a>) {
     let kind = node.kind();
+
+    // --- Identifier-shaped string literals ---
+    // Kinds whose name ends in "string" are literals in every grammar we
+    // support (string, string_literal, interpreted_string_literal,
+    // template_string, ...) while type annotations ("string_type") are
+    // excluded by the suffix rule. Literals that look like identifiers
+    // (env vars, snake/dotted/kebab/slash keys) become global reference
+    // nodes so agents can trace where a config key or status value is used.
+    if kind.ends_with("string") {
+        collect_string_refs(state, node);
+        return;
+    }
 
     // --- Imports ---
     if state.cfg.import_types.contains(&kind) {
@@ -597,6 +707,7 @@ pub(crate) fn extract_single(
         nodes: Vec::new(),
         edges: Vec::new(),
         current_class_id: None,
+        string_refs_seen: HashSet::new(),
     };
 
     // Add file node

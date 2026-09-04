@@ -61,7 +61,9 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
 
             let file_type = match node.node_type.as_str() {
                 "rationale" => "rationale",
-                "concept" | "entity" | "pattern" | "module" => node.node_type.as_str(),
+                "concept" | "entity" | "pattern" | "module" | "reference" => {
+                    node.node_type.as_str()
+                }
                 _ => {
                     if extraction.language == "markdown" {
                         "document"
@@ -117,7 +119,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
             )?;
 
             tx.execute(
-                "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file, source_line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![
                     edge.source,
                     edge.target,
@@ -125,6 +127,7 @@ pub fn build(extractions: &[Extraction], db: &Connection) -> Result<BuildResult>
                     edge.confidence,
                     edge.confidence_score,
                     normalize(&edge.source_file),
+                    edge.source_line,
                 ],
             )?;
             edges_added += 1;

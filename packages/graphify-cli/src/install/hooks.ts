@@ -147,12 +147,23 @@ function getHooksDir(gitRoot: string): string {
   return path.join(gitRoot, '.git', 'hooks');
 }
 
+/// Git hook names come from the fixed HOOK_DEFS allowlist; guard the join
+/// anyway so no runtime-influenced name can reach the hooks directory path.
+function safeHookName(name: string): boolean {
+  return /^[a-zA-Z0-9._-]+$/.test(name);
+}
+
+function hookPathOrNull(hooksDir: string, hookName: string): string | null {
+  if (!safeHookName(hookName)) return null;
+  return path.join(hooksDir, hookName);
+}
+
 function installHook(hooksDir: string, def: HookDef): string {
+  const hookPath = hookPathOrNull(hooksDir, def.hookName);
+  if (!hookPath) return `${def.hookName}: skipped (unsafe hook name)`;
   if (!fs.existsSync(hooksDir)) {
     fs.mkdirSync(hooksDir, { recursive: true });
   }
-
-  const hookPath = path.join(hooksDir, def.hookName);
 
   if (fs.existsSync(hookPath)) {
     let content = fs.readFileSync(hookPath, 'utf-8');
@@ -201,7 +212,8 @@ function installHook(hooksDir: string, def: HookDef): string {
 }
 
 function uninstallHook(hooksDir: string, def: HookDef): string {
-  const hookPath = path.join(hooksDir, def.hookName);
+  const hookPath = hookPathOrNull(hooksDir, def.hookName);
+  if (!hookPath) return `${def.hookName}: skipped (unsafe hook name)`;
   if (!fs.existsSync(hookPath)) {
     return `${def.hookName}: not found`;
   }
@@ -247,7 +259,11 @@ export function statusGitHooks(projectDir: string): string[] {
   const results: string[] = [];
 
   for (const def of HOOK_DEFS) {
-    const hookPath = path.join(hooksDir, def.hookName);
+    const hookPath = hookPathOrNull(hooksDir, def.hookName);
+    if (!hookPath) {
+      results.push(`${def.hookName}: skipped (unsafe hook name)`);
+      continue;
+    }
     if (fs.existsSync(hookPath)) {
       const content = fs.readFileSync(hookPath, 'utf-8');
       if (content.includes(def.startMarker)) {

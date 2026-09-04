@@ -96,7 +96,10 @@ assert(optsOf('status').includes('--graph'), 'status should have --graph');
 const entry = (0, path_1.join)(__dirname, '..', '..', 'dist', 'index.js');
 if ((0, fs_1.existsSync)(entry)) {
     try {
-        const help = (0, child_process_1.execSync)(`node "${entry}" --help`, { stdio: 'pipe', encoding: 'utf-8' });
+        const help = (0, child_process_1.execFileSync)('node', [entry, '--help'], {
+            stdio: 'pipe',
+            encoding: 'utf-8',
+        });
         assert(help.includes('Usage:'), 'dist entrypoint --help should print usage');
     }
     catch (e) {

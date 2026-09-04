@@ -180,10 +180,27 @@ fn insert_edges_from(
     source: &Connection,
     count: &mut i64,
 ) -> graphify_core::Result<()> {
-    let mut stmt = source.prepare(
-        "SELECT source, target, relation, confidence, confidence_score, source_file FROM edges",
-    )?;
-    let rows: Vec<(String, String, String, String, Option<f64>, String)> = stmt
+    // Older graphs (pre schema v4) have no source_line column on edges.
+    let has_line: bool = source
+        .prepare("PRAGMA table_info(edges)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|col| col == "source_line");
+    let mut stmt = source.prepare(if has_line {
+        "SELECT source, target, relation, confidence, confidence_score, source_file, source_line FROM edges"
+    } else {
+        "SELECT source, target, relation, confidence, confidence_score, source_file, NULL FROM edges"
+    })?;
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        String,
+        Option<f64>,
+        String,
+        Option<i64>,
+    )> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,
@@ -192,14 +209,15 @@ fn insert_edges_from(
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
+                row.get(6)?,
             ))
         })?
         .filter_map(|r| r.ok())
         .collect();
-    for (src, tgt, rel, conf, score, sf) in rows {
+    for (src, tgt, rel, conf, score, sf, line) in rows {
         db.execute(
-            "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![src, tgt, rel, conf, score, sf],
+            "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file, source_line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![src, tgt, rel, conf, score, sf, line],
         )?;
         *count += 1;
     }
