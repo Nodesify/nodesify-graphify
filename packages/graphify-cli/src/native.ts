@@ -29,6 +29,8 @@ function getPlatformSuffix(): string {
 function loadNativeBinding(): any {
   for (const candidate of [
     join(__dirname, '..', 'graphify.node'),
+    // tsx runs tests from src/, where CI's built binary lands in dist/
+    join(__dirname, '..', 'dist', 'graphify.node'),
     join(__dirname, 'graphify.node'),
   ]) {
     if (existsSync(candidate)) return require(candidate);
