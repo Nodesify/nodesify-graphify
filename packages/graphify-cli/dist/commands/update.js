@@ -44,7 +44,7 @@ async function updateCommand(path, opts) {
         process.env.GRAPHIFY_LLM_MODEL = opts.model;
     try {
         console.log(`Running incremental rebuild on: ${path}`);
-        const result = (0, native_1.updatePipeline)(path, opts.dedup === false);
+        const result = (0, native_1.updatePipeline)(path, opts.dedup === false, opts.embed === true);
         console.log(`Nodes: ${result.nodesAdded}, Edges: ${result.edgesAdded}, Communities: ${result.communities}`);
         console.log(`Report updated at: ${pathMod.join(path, '.graphify', 'graph_report.md')}`);
         // A wiki created via `run --wiki` or `wiki` would otherwise drift stale

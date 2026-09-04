@@ -1,0 +1,12 @@
+[package]
+name = "graphify-embed"
+version = "0.7.0"
+edition = "2021"
+
+[dependencies]
+graphify-core = { workspace = true }
+rusqlite = { workspace = true }
+fastembed = "6"
+
+[dev-dependencies]
+tempfile = "3"

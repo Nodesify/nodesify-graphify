@@ -15,6 +15,7 @@ members = [
     "crates/graphify-semantic",
     "crates/graphify-ingest",
     "crates/graphify-pdf",
+    "crates/graphify-embed",
 ]
 
 [workspace.dependencies]
@@ -31,6 +32,7 @@ graphify-mcp = { path = "crates/graphify-mcp" }
 graphify-semantic = { path = "crates/graphify-semantic" }
 graphify-ingest = { path = "crates/graphify-ingest" }
 graphify-pdf = { path = "crates/graphify-pdf" }
+graphify-embed = { path = "crates/graphify-embed" }
 rusqlite = { version = "0.34", features = ["bundled"] }
 petgraph = "0.7"
 thiserror = "2"

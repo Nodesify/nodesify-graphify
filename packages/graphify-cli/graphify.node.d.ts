@@ -69,14 +69,19 @@ export interface HistoryEntryJs {
   queriedAt: string;
 }
 
-export function runPipeline(root: string): PipelineResultJs;
-export function updatePipeline(root: string): PipelineResultJs;
+export function runPipeline(root: string, noDedup?: boolean, embed?: boolean): PipelineResultJs;
+export function updatePipeline(root: string, noDedup?: boolean, embed?: boolean): PipelineResultJs;
 export function graphStats(root: string): GraphStatsJs;
 export function getNode(root: string, nodeId: string): NodeJs | null;
 export function getNeighbors(root: string, nodeId: string): NodeJs[];
 export function exportJsonCmd(root: string, outPath: string): void;
 export function exportHtmlCmd(root: string, outPath: string, mode?: string): void;
 export function exportGraphmlCmd(root: string, outPath: string): void;
+export function exportCypherCmd(root: string, outPath: string): number;
+export function exportWiki(root: string, outDir: string, maxKeyNodes?: number): number;
+export function exportObsidian(root: string, outDir: string): number;
+export function exportTree(root: string, out: string, maxChildren?: number): number;
+export function tokenBenchmark(root: string): string;
 export function queryGraph(
   root: string,
   question: string,

@@ -52,8 +52,12 @@ for (const opt of ['--dfs', '--depth', '--budget', '--directed', '--detail', '--
     assert(queryOpts.includes(opt), `query should have ${opt}`);
 }
 const runOpts = optsOf('run');
-for (const opt of ['--no-dedup', '--backend', '--model', '--wiki']) {
+for (const opt of ['--no-dedup', '--backend', '--model', '--wiki', '--embed']) {
     assert(runOpts.includes(opt), `run should have ${opt}`);
+}
+const updateOpts = optsOf('update');
+for (const opt of ['--no-dedup', '--backend', '--model', '--embed']) {
+    assert(updateOpts.includes(opt), `update should have ${opt}`);
 }
 const pathOpts = optsOf('path');
 for (const opt of ['--directed', '--detail', '--graph']) {
