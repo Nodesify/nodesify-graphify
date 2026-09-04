@@ -295,7 +295,7 @@ fn node_note(vault: &Vault, id: &str, node: &NodeRow) -> String {
     ));
     lines.push("---".to_string());
     lines.push(String::new());
-    lines.push(format!("## Connections"));
+    lines.push("## Connections".to_string());
     lines.push(String::new());
 
     // neighbors grouped by relation, parallel edges collapsed to the best
@@ -432,13 +432,12 @@ fn canvas_json(vault: &Vault, members: &HashMap<i64, Vec<&String>>) -> String {
     let cell_h = boxes.iter().map(|(_, h)| *h).max().unwrap_or(300);
     let cols = ((vault.communities.len() as f64).sqrt().ceil().max(1.0)) as i64;
 
-    let mut group_id = 0;
     for (idx, (cid, label, _)) in vault.communities.iter().enumerate() {
         let gx = (idx as i64 % cols) * (cell_w + CARD_GAP * 2);
         let gy = (idx as i64 / cols) * (cell_h + CARD_GAP * 2);
         let (bw, bh) = boxes[idx];
         nodes_json.push(serde_json::json!({
-            "id": format!("group{group_id}"),
+            "id": format!("group{idx}"),
             "type": "group",
             "label": label,
             "x": gx,
@@ -447,10 +446,9 @@ fn canvas_json(vault: &Vault, members: &HashMap<i64, Vec<&String>>) -> String {
             "height": bh,
             "color": CANVAS_COLORS[idx % CANVAS_COLORS.len()],
         }));
-        group_id += 1;
 
         if let Some(member_ids) = members.get(cid) {
-            let mut ranked: Vec<&String> = member_ids.iter().copied().collect();
+            let mut ranked: Vec<&String> = member_ids.to_vec();
             ranked.sort_by(|a, b| {
                 vault
                     .degrees
