@@ -143,7 +143,9 @@ fn is_reference_literal(s: &str) -> bool {
         return false;
     }
     let bytes = s.as_bytes();
-    if bytes.iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_')
+    if bytes
+        .iter()
+        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_')
         && s.contains('_')
     {
         return true;
@@ -175,9 +177,7 @@ fn unquote_literal(raw: &str) -> &str {
     let quoted = bytes.len() >= 2
         && matches!(
             (bytes.first().copied(), bytes.last().copied()),
-            (Some(b'"'), Some(b'"'))
-                | (Some(b'\''), Some(b'\''))
-                | (Some(b'`'), Some(b'`'))
+            (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) | (Some(b'`'), Some(b'`'))
         );
     if quoted {
         &body[1..body.len() - 1]

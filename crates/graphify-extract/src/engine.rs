@@ -246,7 +246,10 @@ mod tests {
         for (literal, id_suffix) in [
             ("PLANE_URL", "plane_url"),
             ("needs_human", "needs_human"),
-            ("harness/hr-101-fix-redis-leak", "harness_hr_101_fix_redis_leak"),
+            (
+                "harness/hr-101-fix-redis-leak",
+                "harness_hr_101_fix_redis_leak",
+            ),
         ] {
             let node = ext
                 .nodes
