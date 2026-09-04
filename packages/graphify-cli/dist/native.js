@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ingestUrl = exports.exportWiki = exports.exportTree = exports.runMcpServer = exports.affectedNode = exports.graphHistory = exports.diffGraphs = exports.mergeGraphs = exports.clusterOnly = exports.findPath = exports.repoMap = exports.queryGraph = exports.tokenBenchmark = exports.exportCypherCmd = exports.exportGraphmlCmd = exports.exportHtmlCmd = exports.exportJsonCmd = exports.explainNode = exports.graphStats = exports.updatePipeline = exports.runPipeline = void 0;
+exports.ingestUrl = exports.exportObsidian = exports.exportWiki = exports.exportTree = exports.runMcpServer = exports.affectedNode = exports.graphHistory = exports.diffGraphs = exports.mergeGraphs = exports.clusterOnly = exports.findPath = exports.repoMap = exports.queryGraph = exports.tokenBenchmark = exports.exportCypherCmd = exports.exportGraphmlCmd = exports.exportHtmlCmd = exports.exportJsonCmd = exports.explainNode = exports.graphStats = exports.updatePipeline = exports.runPipeline = void 0;
 const path_1 = require("path");
 const fs_1 = require("fs");
 const PLATFORM_SUFFIX = {
@@ -93,5 +93,6 @@ exports.affectedNode = binding.affectedNode;
 exports.runMcpServer = binding.runMcpServer;
 exports.exportTree = binding.exportTree;
 exports.exportWiki = binding.exportWiki;
+exports.exportObsidian = binding.exportObsidian;
 exports.ingestUrl = binding.ingestUrl;
 //# sourceMappingURL=native.js.map

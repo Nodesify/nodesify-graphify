@@ -151,6 +151,7 @@ program
     .option('--graph <path>', 'Path to project root', '.')
     .option('--out <dir>', 'Output directory', '.graphify/wiki')
     .option('--max-nodes <n>', 'Max key concepts listed per community article', '25')
+    .option('--format <type>', 'markdown (wiki articles) or obsidian (vault: per-node notes + canvas)', 'markdown')
     .action(wiki_1.wikiCommand);
 program
     .command('prs')
