@@ -795,8 +795,118 @@ pub fn query_graph_with_semantic(
     }
 
     log_query(db, question, &result_text);
+    record_query_pairs(db, &loaded, &seed_nodes, &visited, question);
 
     Ok((result_text, visited.len(), edges_seen.len(), next_cursor))
+}
+
+/// Feedback loop bookkeeping: for one answered query, record which
+/// (seed, discovered) node pairs the traversal connected. Pairs recurring
+/// across DISTINCT questions later promote into `learned` edges — the
+/// graph remembers which connections users actually keep asking about.
+fn record_query_pairs(
+    db: &Connection,
+    loaded: &LoadedGraph,
+    seeds: &[NodeIndex],
+    visited: &HashSet<NodeIndex>,
+    question: &str,
+) {
+    let question: String = question
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(200)
+        .collect();
+    if question.is_empty() {
+        return;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+
+    // Top seeds by rank; discoveries ranked by degree — the load-bearing
+    // nodes the question actually reached.
+    let top_seeds: Vec<&NodeIndex> = seeds.iter().take(3).collect();
+    let mut discoveries: Vec<(usize, &NodeIndex)> = visited
+        .iter()
+        .filter(|idx| !seeds.contains(idx))
+        .map(|idx| (loaded.graph.neighbors(*idx).count(), idx))
+        .collect();
+    discoveries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    let top_discoveries: Vec<&NodeIndex> = discoveries.iter().map(|(_, idx)| *idx).take(5).collect();
+
+    for seed in &top_seeds {
+        for discovery in &top_discoveries {
+            let (source, target) = if loaded.graph[**seed].id <= loaded.graph[**discovery].id {
+                (&loaded.graph[**seed].id, &loaded.graph[**discovery].id)
+            } else {
+                (&loaded.graph[**discovery].id, &loaded.graph[**seed].id)
+            };
+            let _ = db.execute(
+                "INSERT INTO query_pairs (source, target, question, hits, first_seen, last_seen)
+                 VALUES (?1, ?2, ?3, 1, ?4, ?4)
+                 ON CONFLICT (source, target, question)
+                 DO UPDATE SET hits = hits + 1, last_seen = ?4",
+                rusqlite::params![source, target, question, ts],
+            );
+        }
+    }
+}
+
+/// Promote recurring query pairs into `learned` edges: a pair qualifies
+/// when it was connected by at least `min_questions` DISTINCT questions
+/// with at least `min_hits` total repetitions. Existing learned edges are
+/// regenerated (idempotent). Learned edges carry confidence INFERRED with
+/// a hits-based score, so `--detail high` traversals can filter them.
+/// Returns the number of learned edges materialized.
+pub fn promote_learned_edges(
+    db: &Connection,
+    min_questions: usize,
+    min_hits: usize,
+) -> graphify_core::Result<usize> {
+    let pairs: Vec<(String, String, i64)> = {
+        let mut stmt = db.prepare(
+            "SELECT source, target, SUM(hits) FROM query_pairs
+             GROUP BY source, target
+             HAVING COUNT(DISTINCT question) >= ?1 AND SUM(hits) >= ?2",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![min_questions as i64, min_hits as i64],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        rows.flatten().collect()
+    };
+
+    db.execute(
+        "DELETE FROM edges WHERE relation = 'learned' AND source_file = 'query_history'",
+        [],
+    )?;
+
+    let tx = db.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO edges (source, target, relation, confidence, confidence_score, source_file)
+             VALUES (?1, ?2, 'learned', 'INFERRED', ?3, 'query_history')",
+        )?;
+        for (source, target, hits) in &pairs {
+            // 3 hits -> 0.5, 10+ hits -> 1.0: recency-weighted importance
+            // without letting a single hot pair dominate high-fidelity views.
+            let score = ((*hits as f64 - 1.0) / 9.0).clamp(0.1, 1.0);
+            stmt.execute(rusqlite::params![source, target, score])?;
+        }
+    }
+    tx.commit()?;
+    Ok(pairs.len())
 }
 
 pub fn find_shortest_path(
@@ -1097,16 +1207,17 @@ mod tests {
         )
         .unwrap();
 
-        // token-only: no match
+        // token-only: no match (unique db_path — the graph cache is keyed
+        // by db_path, and ":memory:" would collide across tests)
         let (text, nodes, _, _) =
-            query_graph(&db, ":memory:", "auth flow", "bfs", 2, 500, false, 0.0, 0).unwrap();
+            query_graph(&db, "mem-semantic-test", "auth flow", "bfs", 2, 500, false, 0.0, 0).unwrap();
         assert!(text.contains("No matching nodes"), "token-only should miss: {text}");
         assert_eq!(nodes, 0);
 
         // with a semantic candidate the traversal runs
         let semantic = vec![("m".to_string(), 0.9), ("v".to_string(), 0.7)];
         let (text, nodes, _, _) = query_graph_with_semantic(
-            &db, ":memory:", "auth flow", "bfs", 2, 500, false, 0.0, 0, &semantic,
+            &db, "mem-semantic-test", "auth flow", "bfs", 2, 500, false, 0.0, 0, &semantic,
         )
         .unwrap();
         assert!(text.contains("SessionMiddleware"), "semantic seed should drive traversal: {text}");
@@ -1121,6 +1232,66 @@ mod tests {
         // below the noise floor it contributes nothing
         assert_eq!(semantic_seed_score(0.55), 0.0);
         assert_eq!(semantic_seed_score(0.3), 0.0);
+    }
+
+    #[test]
+    fn queries_record_pairs_and_promotion_gates_on_distinct_questions() {
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('auth', 'AuthService', 'code', 'src/auth.rs'),
+                ('sess', 'SessionManager', 'code', 'src/sess.rs'),
+                ('tok', 'TokenValidator', 'code', 'src/tok.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('auth', 'sess', 'calls', 'EXTRACTED', 'src/auth.rs'),
+                ('sess', 'tok', 'calls', 'EXTRACTED', 'src/sess.rs');",
+        )
+        .unwrap();
+
+        // two distinct questions whose traversals connect the same pair
+        // (both must token-match: unmatched questions return early)
+        for question in ["session handling", "session validation"] {
+            query_graph(&db, "mem-pairs-test", question, "bfs", 2, 500, false, 0.0, 0).unwrap();
+        }
+
+        let recorded: i64 = db
+            .query_row("SELECT COUNT(*) FROM query_pairs", [], |r| r.get(0))
+            .unwrap();
+        assert!(recorded > 0, "queries should record seed/discovery pairs");
+
+        // threshold not met yet: 2 distinct questions but each hit once
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(promoted, 0, "needs min_hits across distinct questions");
+
+        // one more repeat pushes hits over the bar
+        query_graph(&db, "mem-pairs-test", "session validation", "bfs", 2, 500, false, 0.0, 0).unwrap();
+        let promoted = promote_learned_edges(&db, 2, 3).unwrap();
+        assert!(promoted > 0, "recurring pairs across questions should promote");
+
+        let (relation, confidence, score, source): (String, String, f64, String) = db
+            .query_row(
+                "SELECT relation, confidence, confidence_score, source_file
+                 FROM edges WHERE relation = 'learned' LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(relation, "learned");
+        assert_eq!(confidence, "INFERRED");
+        assert_eq!(source, "query_history");
+        assert!(score > 0.0 && score <= 1.0);
+
+        // promotion is idempotent — regenerate without duplicating
+        let again = promote_learned_edges(&db, 2, 3).unwrap();
+        assert_eq!(again, promoted);
+        let count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM edges WHERE relation = 'learned'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count as usize, promoted);
     }
 
     fn seed(db: &Connection) -> String {

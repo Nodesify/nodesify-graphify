@@ -379,6 +379,9 @@ fn run_pipeline_inner(
     let embed_wanted = embed || graphify_embed::has_embeddings(db);
 
     if files_to_process.is_empty() && detected.removed.is_empty() && !embed_wanted {
+        // Nothing changed on disk, but queries may have accumulated new
+        // pairs worth promoting — the report should reflect them.
+        let _ = graphify_query::promote_learned_edges(db, 2, 3);
         let analysis = graphify_analyze::analyze(db)?;
         let report = graphify_report::generate_report(db, &analysis)?;
         write_report(graphify_dir, &report)?;
@@ -442,6 +445,20 @@ fn run_pipeline_inner(
     // communities and analysis. Explicit --embed fails loudly; the silent
     // auto-refresh path never triggers a model download.
     embed_stage(db, embed)?;
+
+    // Feedback loop: promote query pairs that recurred across distinct
+    // questions into learned edges. Best-effort — a failure here must not
+    // block the build.
+    match graphify_query::promote_learned_edges(db, 2, 3) {
+        Ok(n) if n > 0 => {
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_learned_edges', ?1)",
+                rusqlite::params![n.to_string()],
+            );
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("warning: learned-edge promotion failed: {e}"),
+    }
 
     let cluster_result = graphify_cluster::cluster(db)?;
     let analysis = graphify_analyze::analyze(db)?;

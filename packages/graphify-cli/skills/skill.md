@@ -193,6 +193,10 @@ nodesify-graphify map --budget 2000
 
 When the graph was built with `run --embed`, `query` automatically merges semantic recall with token matching — conceptual questions with zero string overlap still find their symbols, and `similar_to` edges link related concepts across files. No API key; the model is downloaded once and cached (`GRAPHIFY_EMBED_CACHE_DIR` overrides the location).
 
+### Learning from usage
+
+Repeated queries leave a trace: node pairs that keep coming up across distinct questions are promoted to `learned` edges on the next `run`/`update`. The graph gets better connected in exactly the places the codebase is actually explored.
+
 ### MCP server
 
 `nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph` (supports `cursor` continuation and `detail` tiers), `repo_map`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.

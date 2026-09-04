@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS node_embeddings (
 CREATE INDEX IF NOT EXISTS idx_node_embeddings_model ON node_embeddings(model);
 ";
 
+const SCHEMA_V6: &str = "
+CREATE TABLE IF NOT EXISTS query_pairs (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    question TEXT NOT NULL,
+    hits INTEGER NOT NULL DEFAULT 1,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (source, target, question)
+);
+";
+
 /// Run any pending schema migrations.
 fn run_migrations(conn: &Connection) -> Result<()> {
     let version: i64 = conn
@@ -133,6 +145,15 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch(SCHEMA_V5)?;
         conn.execute(
             "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '5')",
+            [],
+        )?;
+    }
+    if version < 6 {
+        // v6: query feedback loop — seed/visited node pairs per question,
+        // promoted to `learned` edges when they recur across questions.
+        conn.execute_batch(SCHEMA_V6)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '6')",
             [],
         )?;
     }
@@ -234,7 +255,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "5");
+        assert_eq!(version, "6");
         conn.execute(
             "INSERT INTO nodes (id, label, file_type, source_file, signature) VALUES ('a', 'A', 'code', 'f.rs', 'fn a()')",
             [],

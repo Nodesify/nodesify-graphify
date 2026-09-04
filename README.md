@@ -102,6 +102,10 @@ nodesify-graphify export --graph . --format cypher --out graphify.cypher
 cypher-shell -u neo4j -p <password> -f graphify.cypher
 ```
 
+### Learning from usage
+
+The graph compounds in value as you query it. Every query records which (seed, discovered) node pairs its traversal connected; when the same pair recurs across **at least 2 distinct questions with 3+ total hits**, the next `run`/`update` promotes it to a `learned` edge (INFERRED, hits-scored, provenance `query_history`). Learned edges flow into clustering, analysis, and every export — the graph remembers which connections you actually keep asking about. High-fidelity traversals (`--detail high`) can filter them like any INFERRED fact.
+
 ### Token reduction benchmark
 
 Every `run` and `update` prints an honest cost measurement: corpus tokens (the real file sizes from the manifest) versus the tokens a graph query actually returns, sampled over five representative questions. On this repository: ~221,000 corpus tokens vs ~3,000 per query — **73x fewer tokens per query**. On tiny corpora it will honestly report <1x; there the graph's value is structure, not compression, and the output says so.
