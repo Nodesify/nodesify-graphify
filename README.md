@@ -20,6 +20,16 @@ npm install -g @nodesify/graphify
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
+## What's new in 0.8.0
+
+- **Markdown wiki export** — `wiki` / `run --wiki`: an agent-crawlable wiki (`index.md` + one article per community and god node, relative markdown links GitHub and Obsidian both navigate); `update` regenerates it so it never drifts stale
+- **Obsidian vault export** — `wiki --format obsidian`: per-node notes with frontmatter tags and `[[wikilinks]]`, community overviews, and a `graphify.canvas` (2,040 notes + 5,000 canvas edges on this repo)
+- **Local semantic layer** — `run --embed`: a local embedding model (no API key, one-time ~90 MB download, offline after) adds `similar_to` edges across files and embedding-backed query recall; communities consolidated 401 → 194 on this repo
+- **Learning from usage** — repeated queries promote recurring node pairs into `learned` edges; the graph compounds in value the more it is used
+- **Neo4j export** — `export --format cypher`: idempotent MERGE script for cypher-shell
+- **Token benchmark** — every run prints measured corpus-vs-query tokens (82x on this repo); worked examples with honest reviews under `worked/`
+- **Security** — esbuild advisory pinned out, Windows reserved-name guards in exports, learned-edge promotion hardened against stale node references
+
 ## What's new in 0.7.0
 
 - **Edge provenance** — every `EDGE` line in `query` output is anchored with `@file:line` and every `NODE` line with `src=file:line`; `explain` prints locations for the node and each neighbor (schema v4)
