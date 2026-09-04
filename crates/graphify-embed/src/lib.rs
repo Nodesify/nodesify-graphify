@@ -80,7 +80,7 @@ pub fn node_text(label: &str, docstring: Option<&str>, signature: Option<&str>) 
         .filter(|d| !d.trim().is_empty())
         .or_else(|| signature.filter(|s| !s.trim().is_empty()));
     if let Some(description) = description {
-        text.push_str("\n");
+        text.push('\n');
         text.push_str(description.trim());
     }
     if text.len() > MAX_TEXT_CHARS {
@@ -95,9 +95,8 @@ pub fn vec_to_blob(vector: &[f32]) -> Vec<u8> {
 }
 
 pub fn blob_to_vec(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect()
+    let (chunks, _) = blob.as_chunks::<4>();
+    chunks.iter().map(|c| f32::from_le_bytes(*c)).collect()
 }
 
 /// Cosine similarity of two equal-length vectors (0.0 on length mismatch).
