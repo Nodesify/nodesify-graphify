@@ -159,7 +159,16 @@ fn load_graph(db: &Connection, db_path: &str) -> graphify_core::Result<LoadedGra
         let mut stmt = db.prepare(
             "SELECT source, target, relation, confidence, confidence_score, source_file, source_line FROM edges",
         )?;
-        let rows: Vec<(String, String, String, String, Option<f64>, String, Option<i64>)> = stmt
+        #[allow(clippy::type_complexity)]
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<f64>,
+            String,
+            Option<i64>,
+        )> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
