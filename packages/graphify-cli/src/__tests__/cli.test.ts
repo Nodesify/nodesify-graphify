@@ -90,6 +90,15 @@ const modeOpt = program.commands
   ?.options.find((o: any) => o.long === '--mode');
 assert(!!modeOpt && (modeOpt.defaultValue ?? 'standard') === 'standard', 'export --mode should default to "standard"');
 
+// Test 3b: napi platform binaries are shipped via optionalDependencies — a
+// stale pin makes npm install a previous version's .node binary (0.6.0
+// shipped 0.5.0's binary because the pins were not bumped)
+const optDeps: Record<string, string> = pkg.optionalDependencies ?? {};
+assert(Object.keys(optDeps).length === 5, 'all 5 napi platform packages should be pinned');
+for (const [name, pinned] of Object.entries(optDeps)) {
+  assert(pinned === pkg.version, `${name} pinned at ${pinned} should match package version ${pkg.version}`);
+}
+
 for (const opt of ['--author', '--contributor', '--graph']) {
   assert(optsOf('add').includes(opt), `add should have ${opt}`);
 }
