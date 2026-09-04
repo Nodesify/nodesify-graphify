@@ -42,7 +42,7 @@ nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible files
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
 nodesify-graphify status [--graph .]                    # Graph health and staleness
-nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] [--mode standard|large] # Export graph; HTML defaults to standard
 nodesify-graphify cluster-only <path>                   # Re-cluster + analyze + report without re-extracting
 nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
 nodesify-graphify diff <pathA> <pathB>                  # Compare two graphs
@@ -59,6 +59,22 @@ Running `nodesify-graphify run .` creates `.graphify/` with:
 - `db.sqlite` — the graph database
 - `graph.json` — full graph export
 - `graph_report.md` — report with hub nodes, communities, surprising connections
+
+### HTML visualization modes
+
+Use `--format html` to create an interactive vis-network graph view. HTML export uses the same 5,000-node safety limit as the original Graphify viewer:
+
+```bash
+nodesify-graphify export --graph . --format html --out graph-view.html
+```
+
+The default `--mode standard` exports the full interactive graph when it contains at most 5,000 nodes and fails with an actionable message for larger graphs. For larger repositories, explicitly opt into the optimized large-graph viewer:
+
+```bash
+nodesify-graphify export --graph . --format html --mode large --out graph-view.html
+```
+
+Large mode precomputes node positions, disables physics, shows the highest-degree nodes first, supports debounced search and a “Show all nodes” toggle, caps the community legend, and disables expensive edge arrows for very large graphs. JSON and GraphML exports are unaffected by `--mode`.
 
 ### .graphifyignore
 

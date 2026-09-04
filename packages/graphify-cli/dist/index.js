@@ -105,6 +105,7 @@ program
     .option('--graph <path>', 'Path to project root', '.')
     .option('--out <file>', 'Output file', 'graph.json')
     .option('--format <type>', 'Export format: json, html, graphml', 'json')
+    .option('--mode <mode>', 'HTML visualization mode: standard or large', 'standard')
     .action(export_1.exportCommand);
 program
     .command('cluster-only')
