@@ -10,6 +10,13 @@ npm install -g @nodesify/graphify
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
+## What's new in 0.7.0
+
+- **Edge provenance** — every `EDGE` line in `query` output is anchored with `@file:line` and every `NODE` line with `src=file:line`; `explain` prints locations for the node and each neighbor (schema v4)
+- **Reference nodes** — identifier-shaped string literals (env vars like `PLANE_URL`, snake_case keys, dotted/kebab/slash chains) become global reference nodes with `references` edges, so config/status-value usage is one graph query
+- **Staleness visibility** — `query` output reports when the graph was last built, so agents can judge freshness
+- **Security hardening** — no shell-string exec, literal-allowlist native module loading, install-path containment guards
+
 ## What's new in 0.6.1
 
 - **Fixed installs shipping a stale native binary** — the platform `optionalDependencies` pins now track the package version (enforced by a test); 0.6.0 installs pulled the 0.5.0 binary
