@@ -10,16 +10,20 @@ npm install -g @nodesify/graphify
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
-## What's new in 0.4.0
+## What's new in 0.5.0
 
-- **`affected`** — blast-radius analysis: what breaks if you change a node
-- **MCP server** — `nodesify-graphify mcp` exposes the graph to AI agents (8 tools)
-- **Entity dedup** — near-duplicate symbols merged automatically (MinHash + Jaro-Winkler; `--no-dedup` to skip)
-- **Community labels** — communities named after their hub node, with cohesion scores
-- **Dependency manifests** — pyproject.toml / Cargo.toml / go.mod / package.json / pom.xml become `pkg_*` nodes with `depends_on` edges
-- **`tree`** — collapsible filesystem tree of every symbol (self-contained HTML)
-- **`prs`** — open PRs mapped onto the graph with merge-order risk detection
-- Stable Unicode node IDs, qualified-call resolution across files, and a git-hook installer migration fix
+- **Deterministic clustering** — stable communities across runs, Newman modularity in report/stats
+- **Directed traversal** — `--directed` on `query`/`path` (CLI, napi, MCP), fidelity tiers (`--detail high`), continuation cursors for truncated traversals
+- **Aider-style repo map** — `nodesify-graphify map`: PageRank-ranked files with top symbols, within a token budget
+- **Node signatures** — schema v3 signatures shown in query/explain output
+- **Parallel LLM semantic extraction** — `GRAPHIFY_LLM_CONCURRENCY` worker pool, long-file chunking, output validation, Retry-After backoff
+- **Agent-facing output quality** — root-relative paths everywhere, did-you-mean suggestions, candidate lists on ambiguous seeds, node ids in query/affected output
+- **Hardening** — sensitive-path denylist (.env, keys, credentials), minified/vendored asset skip, read-only commands no longer create empty `.graphify/` directories
+- God nodes exclude call stubs; O(V+E) blast radius via reverse adjacency; numeric confidence ranking
+
+### 0.4.0 highlights
+
+- `affected` blast-radius analysis, MCP server (9 tools), entity dedup (MinHash + Jaro-Winkler), `tree` HTML export, `prs` merge-order risk, dependency-manifest `pkg_*` nodes
 
 ## Usage
 
@@ -28,19 +32,23 @@ nodesify-graphify run <path>                            # Full pipeline: detect 
 nodesify-graphify update <path>                         # Incremental rebuild (only changed files)
 nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
-nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--graph .]  # BFS/DFS traversal
-nodesify-graphify path <A> <B> [--graph .]              # Shortest path between two concepts
+nodesify-graphify query <question> [--dfs] [--depth 2] [--budget 2000] [--directed] [--detail high] [--cursor N] [--graph .]  # BFS/DFS traversal
+nodesify-graphify path <A> <B> [--directed] [--detail high] [--graph .]  # Shortest path between two concepts
 nodesify-graphify affected <node> [--depth 2] [--relation R] [--graph .]  # Blast radius - what breaks if you change this node
+nodesify-graphify map [--budget 2000] [--graph .]       # PageRank-ranked repo map with top symbols
 nodesify-graphify add <url> [--author] [--contributor]     # Fetch arXiv/tweet/webpage/image/PDF into ./raw + update graph
 nodesify-graphify mcp [--graph .]                             # Run MCP stdio server - query the graph from any AI agent
 nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible filesystem tree of all symbols (HTML)
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
+nodesify-graphify status [--graph .]                    # Graph health and staleness
 nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
+nodesify-graphify cluster-only <path>                   # Re-cluster + analyze + report without re-extracting
 nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
 nodesify-graphify diff <pathA> <pathB>                  # Compare two graphs
 nodesify-graphify history [--limit 20] [--graph .]      # Show recent query history
 nodesify-graphify install [--platform claude]           # Install skill files for AI coding assistants
+nodesify-graphify uninstall [--platform claude]         # Uninstall skill files
 nodesify-graphify hook install|uninstall|status         # Git hook management
 ```
 
@@ -70,25 +78,31 @@ Set any LLM backend and the pipeline enriches docs, papers, and images into conc
 
 ## Architecture
 
-Rust workspace with 8 domain crates + Node.js CLI:
+Rust workspace with 14 crates + Node.js CLI:
 
 ```
 crates/
-  graphify-core/      Types, error, SQLite schema
+  graphify-core/      Types, error, SQLite schema + migrations, path validation, sensitive-path denylist
+  graphify-paths/     Path normalization, .graphify directory management
   graphify-detect/    File discovery, classification, incremental change detection
-  graphify-extract/   Tree-sitter AST extraction (22 languages)
-  graphify-build/     Merge extractions into SQLite graph
-  graphify-cluster/   Label propagation community detection
-  graphify-analyze/   God nodes, surprising connections, suggested questions
+  graphify-extract/   Tree-sitter AST extraction (21 languages)
+  graphify-build/     Merge extractions into SQLite graph, entity dedup (MinHash + Jaro-Winkler)
+  graphify-cluster/   Deterministic label propagation community detection
+  graphify-analyze/   God nodes, surprising connections, blast radius
+  graphify-query/     Query engine: BFS/DFS (optionally directed), shortest path, explain
+  graphify-mcp/       MCP stdio server exposing the graph to AI agents
   graphify-report/    Markdown report generation
-  graphify-napi/      napi-rs bindings, pipeline orchestration, query engine
+  graphify-semantic/  LLM semantic extraction (Claude / OpenAI-compatible / Gemini), with vision
+  graphify-ingest/    URL ingestion (arXiv/tweet/webpage/image) with SSRF protection
+  graphify-pdf/       PDF text extraction
+  graphify-napi/      napi-rs bindings, pipeline orchestration, merge/diff, JSON/HTML/GraphML/tree export
 packages/
   graphify-cli/       Node.js CLI (commander.js)
 ```
 
-Pipeline: `detect() → extract() → build() → cluster() → analyze() → report()`
+Pipeline: `detect() → extract() → enrich_with_semantics() → build() → dedup_nodes() → cluster() → analyze() → report()`
 
-Each stage is a pure function in its own crate. SQLite is the persistence layer (extraction cache, file manifest, graph storage, pipeline state, query history). petgraph provides in-memory algorithms (BFS/DFS, label propagation, shortest path).
+Each stage is a pure function in its own crate; semantic enrichment is optional and activates when an LLM backend is configured. SQLite is the persistence layer (extraction cache, file manifest, graph storage, pipeline runs, query history). petgraph provides in-memory algorithms (BFS/DFS, label propagation, shortest path).
 
 Design docs: [design spec](docs/superpowers/specs/2026-04-30-nodesify-graphify-rewrite-design.md), [implementation plan](docs/superpowers/plans/2026-04-30-nodesify-graphify-implementation.md).
 
@@ -102,15 +116,16 @@ cargo build --release
 cd packages/graphify-cli && npm run build
 ```
 
-Requires Rust 2021 edition (Rust 1.56+) and Node.js >= 18.
+Requires Rust 2021 edition (Rust 1.56+) and Node.js >= 20.
 
 ## Test
 
 ```bash
-cargo test  # All Rust crate unit tests
+cargo test  # All Rust crates: unit tests + end-to-end pipeline integration tests
+cd packages/graphify-cli && npm run build && npm test  # CLI tests + end-to-end test of the compiled binary
 ```
 
-Each crate has unit tests using in-memory SQLite (`open_db_in_memory()`) and `tempfile` for filesystem fixtures. No integration test suite or CLI tests yet.
+Rust crates have unit tests using in-memory SQLite (`open_db_in_memory()`) and `tempfile` for filesystem fixtures, plus integration tests in `crates/graphify-napi/tests/` that run the full pipeline over language fixtures. The CLI package has structure tests against the real Commander program, install/hook tests, and an end-to-end test that spawns the compiled CLI against a fixture project (skips automatically if `dist/` hasn't been built).
 
 ## Language support
 

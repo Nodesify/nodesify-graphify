@@ -44,11 +44,13 @@ nodesify-graphify tree [--out tree.html] [--max-children 40] # Collapsible files
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify map [--budget 2000] [--graph .]    # PageRank-ranked repo map with top symbols
 nodesify-graphify stats [--graph .]                             # Graph statistics
-nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] # Export graph
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml]  # Export graph
 nodesify-graphify merge <pathA> <pathB> <outPath>               # Merge two graphs
 nodesify-graphify diff <pathA> <pathB>                          # Compare two graphs
 nodesify-graphify history [--limit 20] [--graph .]              # Show recent query history
-nodesify-graphify install [--platform claude|gemini|...]        # Install AI platform skill files
+nodesify-graphify cluster-only <path>                           # Re-cluster without re-extracting
+nodesify-graphify install [--platform claude|codex|gemini|cursor|kiro|aider|copilot|trae|opencode]  # Install AI platform skill files
+nodesify-graphify uninstall [--platform ...]                    # Uninstall AI platform skill files
 nodesify-graphify hook install|uninstall|status                 # Git hook management
 ```
 
