@@ -209,11 +209,15 @@ fn enrich_with_semantics(
 }
 
 pub fn run_pipeline(root: &Path) -> graphify_core::Result<PipelineResult> {
-    run_pipeline_with(root, true)
+    run_pipeline_with(root, true, false)
 }
 
 /// Run the pipeline with explicit dedup control (`--no-dedup`).
-pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<PipelineResult> {
+pub fn run_pipeline_with(
+    root: &Path,
+    dedup: bool,
+    embed: bool,
+) -> graphify_core::Result<PipelineResult> {
     let root = if root.exists() {
         root.canonicalize()
             .map_err(graphify_core::GraphifyError::Io)?
@@ -257,7 +261,7 @@ pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<Pipe
         |row| row.get(0),
     )?;
 
-    let result = run_pipeline_inner(&root, &db, &graphify_dir, dedup);
+    let result = run_pipeline_inner(&root, &db, &graphify_dir, dedup, embed);
 
     // Record pipeline completion
     let (status, files_processed, nodes_added, edges_added) = match &result {
@@ -279,11 +283,52 @@ pub fn run_pipeline_with(root: &Path, dedup: bool) -> graphify_core::Result<Pipe
     result
 }
 
+/// Semantic similarity stage: embed nodes missing vectors, then regenerate
+/// `similar_to` edges. Runs when explicitly requested, or as a silent
+/// incremental refresh when embeddings already exist and the model cache is
+/// present (never downloads on its own). Explicit requests fail loudly.
+fn embed_stage(db: &Connection, requested: bool) -> graphify_core::Result<()> {
+    if !requested && !graphify_embed::has_embeddings(db) {
+        return Ok(());
+    }
+    // The silent refresh path must stay offline: bail unless cached.
+    if !requested && !graphify_embed::model_cached() {
+        return Ok(());
+    }
+    match graphify_embed::load_embedder() {
+        Ok(mut embedder) => {
+            let embedded = graphify_embed::embed_missing_nodes(db, &mut embedder, 64)?;
+            let edges = graphify_embed::rebuild_similarity_edges(
+                db,
+                graphify_embed::DEFAULT_SIMILARITY_THRESHOLD,
+                graphify_embed::DEFAULT_TOP_K,
+            )?;
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO _meta (key, value) VALUES ('last_similar_edges', ?1)",
+                rusqlite::params![edges.to_string()],
+            );
+            if requested || embedded > 0 {
+                eprintln!("[graphify] semantic: {embedded} nodes embedded, {edges} similar_to edges (local model, no API key)");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if requested {
+                Err(e)
+            } else {
+                eprintln!("[graphify] skipping semantic refresh: {e}");
+                Ok(())
+            }
+        }
+    }
+}
+
 fn run_pipeline_inner(
     root: &Path,
     db: &Connection,
     graphify_dir: &Path,
     dedup: bool,
+    embed: bool,
 ) -> graphify_core::Result<PipelineResult> {
     let detected = graphify_detect::detect(root, db)?;
     graphify_detect::update_manifest(&detected, db)?;
@@ -328,7 +373,12 @@ fn run_pipeline_inner(
         .map(|e| root.join(&e.path))
         .collect();
 
-    if files_to_process.is_empty() && detected.removed.is_empty() {
+    // A no-op pass (nothing changed) still runs the embed stage when it is
+    // requested or embeddings already exist — otherwise `run --embed` on an
+    // unchanged tree would never compute anything.
+    let embed_wanted = embed || graphify_embed::has_embeddings(db);
+
+    if files_to_process.is_empty() && detected.removed.is_empty() && !embed_wanted {
         let analysis = graphify_analyze::analyze(db)?;
         let report = graphify_report::generate_report(db, &analysis)?;
         write_report(graphify_dir, &report)?;
@@ -386,6 +436,12 @@ fn run_pipeline_inner(
             rusqlite::params![semantic_failed.to_string()],
         );
     }
+
+    // Semantic similarity pass (local embeddings, no API key): embed new
+    // nodes and regenerate similar_to edges BEFORE clustering so they shape
+    // communities and analysis. Explicit --embed fails loudly; the silent
+    // auto-refresh path never triggers a model download.
+    embed_stage(db, embed)?;
 
     let cluster_result = graphify_cluster::cluster(db)?;
     let analysis = graphify_analyze::analyze(db)?;

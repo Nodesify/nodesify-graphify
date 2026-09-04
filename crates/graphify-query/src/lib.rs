@@ -687,13 +687,72 @@ pub fn query_graph(
     min_strength: f64,
     cursor: usize,
 ) -> graphify_core::Result<(String, usize, usize, Option<usize>)> {
+    query_graph_with_semantic(
+        db,
+        db_path,
+        question,
+        mode,
+        depth,
+        budget,
+        directed,
+        min_strength,
+        cursor,
+        &[],
+    )
+}
+
+/// Rescale a cosine in [0.55, 1.0] into the seed-score scale: a perfect
+/// semantic match (1.0) lands just under an exact label match (1.0+),
+/// mid-range matches land near the path/docstring layer.
+fn semantic_seed_score(cosine: f64) -> f64 {
+    ((cosine - 0.55) * 1.5).clamp(0.0, 0.67)
+}
+
+/// `query_graph` plus semantic seed candidates: `(node_id, cosine)` pairs
+/// from an embedding model. Semantic matches merge with token scoring by
+/// taking each node's best score, so a purely semantic match still seeds
+/// the traversal — how "auth flow" finds `SessionMiddleware` with zero
+/// string overlap — while exact label matches keep outranking it.
+#[allow(clippy::too_many_arguments)]
+pub fn query_graph_with_semantic(
+    db: &Connection,
+    db_path: &str,
+    question: &str,
+    mode: &str,
+    depth: usize,
+    budget: i64,
+    directed: bool,
+    min_strength: f64,
+    cursor: usize,
+    semantic: &[(String, f64)],
+) -> graphify_core::Result<(String, usize, usize, Option<usize>)> {
     let loaded = load_graph_cached(db, db_path)?;
     if loaded.graph.node_count() == 0 {
         return Ok(("No nodes in graph.".to_string(), 0, 0, None));
     }
 
     let terms: Vec<String> = question.split_whitespace().map(|s| s.to_string()).collect();
-    let scored = score_nodes(&loaded, &terms);
+    let mut scored = score_nodes(&loaded, &terms);
+
+    // Merge semantic candidates: max(token score, rescaled cosine) per node.
+    if !semantic.is_empty() {
+        let mut by_index: std::collections::HashMap<NodeIndex, f64> =
+            scored.iter().map(|(s, i)| (*i, *s)).collect();
+        for (node_id, cosine) in semantic {
+            if let Some(&idx) = loaded.id_to_idx.get(node_id) {
+                let entry = by_index.entry(idx).or_insert(0.0);
+                *entry = (*entry).max(semantic_seed_score(*cosine));
+            }
+        }
+        scored = by_index.into_iter().map(|(i, s)| (s, i)).collect();
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| loaded.graph[a.1].label.cmp(&loaded.graph[b.1].label))
+                .then_with(|| loaded.graph[a.1].id.cmp(&loaded.graph[b.1].id))
+        });
+    }
+
     if scored.is_empty() {
         let suggestions = nearest_labels(&loaded, question, SUGGESTION_COUNT);
         let msg = if suggestions.is_empty() {
@@ -1023,6 +1082,46 @@ pub struct ExplainResult {
 mod tests {
     use super::*;
     use graphify_core::db::open_db_in_memory;
+
+    #[test]
+    fn semantic_seeds_match_without_string_overlap() {
+        // "auth flow" shares no tokens with "SessionMiddleware" — token
+        // scoring finds nothing; a semantic candidate must seed the traversal.
+        let db = open_db_in_memory().unwrap();
+        db.execute_batch(
+            "INSERT INTO nodes (id, label, file_type, source_file) VALUES
+                ('m', 'SessionMiddleware', 'code', 'src/session.rs'),
+                ('v', 'validateSession()', 'code', 'src/session.rs');
+            INSERT INTO edges (source, target, relation, confidence, source_file) VALUES
+                ('m', 'v', 'defines', 'EXTRACTED', 'src/session.rs');",
+        )
+        .unwrap();
+
+        // token-only: no match
+        let (text, nodes, _, _) =
+            query_graph(&db, ":memory:", "auth flow", "bfs", 2, 500, false, 0.0, 0).unwrap();
+        assert!(text.contains("No matching nodes"), "token-only should miss: {text}");
+        assert_eq!(nodes, 0);
+
+        // with a semantic candidate the traversal runs
+        let semantic = vec![("m".to_string(), 0.9), ("v".to_string(), 0.7)];
+        let (text, nodes, _, _) = query_graph_with_semantic(
+            &db, ":memory:", "auth flow", "bfs", 2, 500, false, 0.0, 0, &semantic,
+        )
+        .unwrap();
+        assert!(text.contains("SessionMiddleware"), "semantic seed should drive traversal: {text}");
+        assert!(nodes > 0);
+    }
+
+    #[test]
+    fn semantic_score_rescales_below_exact_label_match() {
+        // a perfect cosine (1.0) caps at 0.67 — under an exact label hit
+        assert!(semantic_seed_score(1.0) < 1.0);
+        assert!((semantic_seed_score(1.0) - 0.675).abs() < 0.01);
+        // below the noise floor it contributes nothing
+        assert_eq!(semantic_seed_score(0.55), 0.0);
+        assert_eq!(semantic_seed_score(0.3), 0.0);
+    }
 
     fn seed(db: &Connection) -> String {
         db.execute_batch(

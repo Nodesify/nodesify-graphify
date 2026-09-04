@@ -43,7 +43,7 @@ async function runCommand(path, opts) {
         process.env.GRAPHIFY_LLM_MODEL = opts.model;
     try {
         console.log(`Running graphify pipeline on: ${path}`);
-        const result = (0, native_1.runPipeline)(path, opts.dedup === false);
+        const result = (0, native_1.runPipeline)(path, opts.dedup === false, opts.embed === true);
         console.log(`Nodes added: ${result.nodesAdded}`);
         console.log(`Edges added: ${result.edgesAdded}`);
         console.log(`Communities: ${result.communities}`);

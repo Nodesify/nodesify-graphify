@@ -189,6 +189,10 @@ Aider-style repo map: files ranked by PageRank over the reference graph, with ea
 nodesify-graphify map --budget 2000
 ```
 
+### Semantic layer (local embeddings)
+
+When the graph was built with `run --embed`, `query` automatically merges semantic recall with token matching — conceptual questions with zero string overlap still find their symbols, and `similar_to` edges link related concepts across files. No API key; the model is downloaded once and cached (`GRAPHIFY_EMBED_CACHE_DIR` overrides the location).
+
 ### MCP server
 
 `nodesify-graphify mcp --graph .` runs an MCP stdio server exposing the graph to AI agents with tools: `query_graph` (supports `cursor` continuation and `detail` tiers), `repo_map`, `explain`, `get_neighbors`, `shortest_path`, `affected`, `god_nodes`, `list_communities`, `graph_stats`.

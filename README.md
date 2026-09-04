@@ -39,6 +39,7 @@ Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 ```bash
 nodesify-graphify run <path>                            # Full pipeline: detect → extract → build → cluster → analyze → report
 nodesify-graphify run <path> --wiki                     # ...also export a markdown wiki to .graphify/wiki
+nodesify-graphify run <path> --embed                    # ...also compute local embeddings (similar_to edges + semantic query recall)
 nodesify-graphify update <path>                         # Incremental rebuild (only changed files; regenerates an existing wiki)
 nodesify-graphify watch <path> [--debounce 3000]        # Watch for file changes, auto-rebuild
 nodesify-graphify explain <node> [--graph .]            # Explain a node and its connections
@@ -122,7 +123,16 @@ Place a `.graphifyignore` file in your project root (gitignore syntax) to exclud
 
 ## Semantic enrichment
 
-Set any LLM backend and the pipeline enriches docs, papers, and images into concept nodes automatically:
+Two independent semantic layers, both optional:
+
+**Local embeddings (no API key)** — `run --embed` downloads a small local model once (~90 MB, then offline forever) and computes vector embeddings for every node. This adds:
+
+- `similar_to` edges (INFERRED, cosine-scored) linking semantically related symbols across files — they flow into clustering, surprising connections, and every export
+- embedding-backed query recall: `query` merges semantic candidates with token matching, so conceptual questions with zero string overlap still find their symbols
+
+Once embeddings exist, every `run`/`update` refreshes them incrementally (offline — the refresh never downloads), and `query` picks them up automatically. Override the model cache location with `GRAPHIFY_EMBED_CACHE_DIR`.
+
+**LLM enrichment** — set any LLM backend and the pipeline enriches docs, papers, and images into concept nodes automatically:
 
 | Backend | Env vars | Vision |
 |---------|----------|--------|

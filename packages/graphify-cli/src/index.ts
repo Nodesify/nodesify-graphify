@@ -39,6 +39,7 @@ program
   .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
   .option('--model <name>', 'Semantic LLM model name (backend-specific)')
   .option('--wiki', 'Also export a markdown wiki to .graphify/wiki')
+  .option('--embed', 'Compute local embeddings: similar_to edges + semantic query recall (downloads a small model on first use)')
   .action(runCommand);
 
 program
@@ -48,6 +49,7 @@ program
   .option('--no-dedup', 'Skip near-duplicate node merging')
   .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
   .option('--model <name>', 'Semantic LLM model name (backend-specific)')
+  .option('--embed', 'Compute local embeddings: similar_to edges + semantic query recall (downloads a small model on first use)')
   .action(updateCommand);
 
 program

@@ -3,13 +3,13 @@ import { runPipeline, exportWiki, tokenBenchmark } from '../native';
 
 export async function runCommand(
   path: string,
-  opts: { dedup?: boolean; backend?: string; model?: string; wiki?: boolean },
+  opts: { dedup?: boolean; backend?: string; model?: string; wiki?: boolean; embed?: boolean },
 ) {
   if (opts.backend) process.env.GRAPHIFY_LLM_BACKEND = opts.backend;
   if (opts.model) process.env.GRAPHIFY_LLM_MODEL = opts.model;
   try {
     console.log(`Running graphify pipeline on: ${path}`);
-    const result = runPipeline(path, opts.dedup === false);
+    const result = runPipeline(path, opts.dedup === false, opts.embed === true);
     console.log(`Nodes added: ${result.nodesAdded}`);
     console.log(`Edges added: ${result.edgesAdded}`);
     console.log(`Communities: ${result.communities}`);
