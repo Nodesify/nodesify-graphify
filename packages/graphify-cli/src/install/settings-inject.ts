@@ -20,19 +20,12 @@ function writeJson(filePath: string, data: any) {
 
 // ---- Claude Code (.claude/settings.json) ----
 
-const CLAUDE_HOOK = {
-  matcher: 'Grep|Glob|Read',
+const CLAUDE_POST_UPDATE_HOOK = {
+  matcher: 'Edit|Write',
   hooks: [{
     type: 'command',
-    command: `node -e "const fs=require('fs');const p='.graphify/graph.json';if(!fs.existsSync(p)){process.exit(0)}const age=Math.round((Date.now()-fs.statSync(p).mtimeMs)/60000);const msg=age>30?'nodesify-graphify: STALE GRAPH (built '+age+' min ago). Run nodesify-graphify update . BEFORE searching. Then use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.':'nodesify-graphify: Knowledge graph available. Use nodesify-graphify query for architecture questions. Read .graphify/graph_report.md first.';process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:msg}}))"`,
-  }],
-};
-
-const BASH_GREP_HOOK = {
-  matcher: 'Bash',
-  hooks: [{
-    type: 'command',
-    command: `CMD=$(node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write((d.tool_input||d).command||'')" 2>/dev/null || true); case "$CMD" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *) [ -f .graphify/graph.json ] && echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"nodesify-graphify: Use nodesify-graphify query instead of grep for architecture questions. Read .graphify/graph_report.md first."}}' || true ;; esac`,
+    // Detached and debounced so editing never waits for a graph rebuild.
+    command: `node -e "const fs=require('fs'),cp=require('child_process'),path=require('path');try{const root=cp.execSync('git rev-parse --show-toplevel',{encoding:'utf8'}).trim();const stamp=path.join(root,'.graphify','.posttool-update');if(fs.existsSync(stamp)&&Date.now()-fs.statSync(stamp).mtimeMs<120000)process.exit(0);fs.mkdirSync(path.dirname(stamp),{recursive:true});fs.writeFileSync(stamp,String(Date.now()));const cli=fs.existsSync(path.join(root,'packages','graphify-cli','dist','index.js'))?'node packages/graphify-cli/dist/index.js update .':'npx --no-install nodesify-graphify update .';cp.spawn(cli,{cwd:root,shell:true,detached:true,stdio:'ignore'}).unref()}catch{}"`,
   }],
 };
 
@@ -43,15 +36,17 @@ export function injectClaudeHook(projectDir: string): boolean {
   if (!data.hooks.PreToolUse) data.hooks.PreToolUse = [];
 
   const existing = data.hooks.PreToolUse as any[];
-  const alreadyExists = existing.some((h: any) =>
-    JSON.stringify(h.hooks).includes('graphify')
-  );
-  if (alreadyExists) return false;
+  const hadLegacy = existing.some((h: any) => JSON.stringify(h.hooks).includes('graphify'));
 
-  existing.push(BASH_GREP_HOOK);
-  existing.push(CLAUDE_HOOK);
+  // Remove legacy graphify PreToolUse nags when upgrading.
+  data.hooks.PreToolUse = existing.filter((h: any) => !JSON.stringify(h.hooks).includes('graphify'));
+  if (data.hooks.PreToolUse.length === 0) delete data.hooks.PreToolUse;
+  const post = data.hooks.PostToolUse || [];
+  const hadPost = post.some((h: any) => JSON.stringify(h.hooks).includes('graphify'));
+  if (!hadPost) post.push(CLAUDE_POST_UPDATE_HOOK);
+  data.hooks.PostToolUse = post;
   writeJson(settingsPath, data);
-  return true;
+  return !hadPost || hadLegacy;
 }
 
 export function removeClaudeHook(projectDir: string): boolean {
@@ -59,21 +54,22 @@ export function removeClaudeHook(projectDir: string): boolean {
   if (!fs.existsSync(settingsPath)) return false;
 
   const data = readJson(settingsPath);
-  if (!data.hooks?.PreToolUse) return false;
+  if (!data.hooks) return false;
 
-  const before = data.hooks.PreToolUse.length;
-  data.hooks.PreToolUse = (data.hooks.PreToolUse as any[]).filter((h: any) =>
-    !JSON.stringify(h.hooks).includes('graphify')
-  );
-
-  if (data.hooks.PreToolUse.length === 0) {
-    delete data.hooks.PreToolUse;
+  const before = JSON.stringify(data.hooks);
+  for (const event of ['PreToolUse', 'PostToolUse']) {
+    if (data.hooks[event]) {
+      data.hooks[event] = (data.hooks[event] as any[]).filter((h: any) =>
+        !JSON.stringify(h.hooks).includes('graphify')
+      );
+      if (data.hooks[event].length === 0) delete data.hooks[event];
+    }
   }
   if (Object.keys(data.hooks).length === 0) {
     delete data.hooks;
   }
   writeJson(settingsPath, data);
-  return data.hooks?.PreToolUse?.length !== before;
+  return JSON.stringify(data.hooks) !== before;
 }
 
 // ---- Codex (.codex/hooks.json) ----
