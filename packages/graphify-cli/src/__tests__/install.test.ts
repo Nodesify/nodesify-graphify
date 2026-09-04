@@ -51,13 +51,12 @@ function testClaudeHook() {
   assert(result1 === true, 'Claude: first inject returns true');
 
   const settings = readJson(path.join(dir, '.claude', 'settings.json'));
-  const hooks = settings.hooks.PreToolUse as any[];
-  assert(hooks.length === 2, 'Claude: two hooks after inject (Bash + Grep|Glob|Read)');
-  const matchers = hooks.map((h: any) => h.matcher);
-  assert(matchers.includes('Bash'), 'Claude: includes Bash matcher');
-  assert(matchers.includes('Grep|Glob|Read'), 'Claude: includes Grep|Glob|Read matcher');
+  const hooks = settings.hooks.PostToolUse as any[];
+  assert(hooks.length === 1, 'Claude: one PostToolUse hook after inject');
+  assert(hooks[0].matcher === 'Edit|Write', 'Claude: uses Edit|Write matcher');
+  assert(!settings.hooks.PreToolUse, 'Claude: does not install PreToolUse nags');
   assert(JSON.stringify(hooks).includes('graphify'), 'Claude: hooks contain graphify');
-  assert(JSON.stringify(hooks).includes('nodesify-graphify query'), 'Claude: hook mentions query command');
+  assert(JSON.stringify(hooks).includes('update .'), 'Claude: hook updates graph');
 
   // idempotent — second inject returns false
   const result2 = injectClaudeHook(dir);
@@ -65,7 +64,7 @@ function testClaudeHook() {
 
   // still only two hooks
   const settings2 = readJson(path.join(dir, '.claude', 'settings.json'));
-  assert((settings2.hooks.PreToolUse as any[]).length === 2, 'Claude: still two hooks after double inject');
+  assert((settings2.hooks.PostToolUse as any[]).length === 1, 'Claude: still one hook after double inject');
 
   // remove
   const removed = removeClaudeHook(dir);
@@ -90,7 +89,8 @@ function testClaudeHook() {
   fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify(data));
   injectClaudeHook(dir);
   const settings4 = readJson(path.join(dir, '.claude', 'settings.json'));
-  assert((settings4.hooks.PreToolUse as any[]).length === 3, 'Claude: preserves existing hooks (1 existing + 2 graphify)');
+  assert((settings4.hooks.PreToolUse as any[]).length === 1, 'Claude: preserves existing hooks');
+  assert((settings4.hooks.PostToolUse as any[]).length === 1, 'Claude: adds one PostToolUse hook');
 
   fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -244,9 +244,8 @@ function testKiroSteering() {
 function testMarkdownInject() {
   const dir = tmpDir();
 
-  // PROJECT_MD_SECTION uses MUST language
-  assert(PROJECT_MD_SECTION.includes('MUST'), 'PROJECT_MD_SECTION uses MUST language');
-  assert(PROJECT_MD_SECTION.includes('nodesify-graphify query'), 'PROJECT_MD_SECTION mentions query');
+  assert(!PROJECT_MD_SECTION.includes('MUST'), 'PROJECT_MD_SECTION is passive');
+  assert(PROJECT_MD_SECTION.includes('/graphify'), 'PROJECT_MD_SECTION mentions opt-in skill');
 
   // injectSection creates file with content
   const filePath = path.join(dir, 'CLAUDE.md');
