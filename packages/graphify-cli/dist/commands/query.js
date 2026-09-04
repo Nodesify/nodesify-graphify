@@ -10,6 +10,9 @@ async function queryCommand(question, opts) {
         const cursor = parseInt(opts.cursor || '0', 10) || 0;
         const result = (0, native_1.queryGraph)(opts.graph, question, mode, depth, budget, opts.directed ?? false, opts.detail, cursor);
         console.log(result.text);
+        if (result.graphBuiltAt) {
+            console.log(`# graph built at ${result.graphBuiltAt}`);
+        }
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

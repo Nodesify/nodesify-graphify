@@ -88,6 +88,39 @@ Only use native file reading AFTER the graph has identified the exact files you 
 - Running tests or build commands
 - Git operations
 
+### When direct search / file reading is better than the graph
+
+The graph models entities and relationships — it does NOT model behavior.
+Use Grep/Glob/file reads first for:
+
+- **Predicate-level bugs**: "is this window check off by one?", "does this
+  regex match branch slugs?" — expression semantics are invisible to a
+  graph. Read the code.
+- **Exact string audits**: checking every occurrence of a literal in a
+  handful of files, or auditing env var names and CLI flags. Grep is
+  deterministic and fast here.
+- **Natural-language discovery**: the graph anchors on symbol names.
+  `query` handles typos and partial matches, but if you don't know any
+  symbol name yet, a broad grep for a distinctive string is often faster.
+
+Rule of thumb: use the graph to identify WHICH files matter (blast radius,
+architecture, cross-module dependencies), then read those files directly
+for exact logic. Graph output includes `file:line` anchors precisely so
+you can jump straight from a node or edge to the source.
+
+### Provenance and reference nodes
+
+- Every `NODE` line in `query` output carries `src=path:line`, and every
+  `EDGE` line ends with `@path:line` — the exact spot the relationship was
+  extracted from. `explain` prints `File: path:line` for the node and each
+  neighbor.
+- Identifier-shaped string literals (env vars like `PLANE_URL`, snake_case
+  keys like `needs_human`, dotted/kebab/slash chains like
+  `harness/hr-101-fix-redis-leak`) are indexed as global `reference` nodes
+  with `references` edges — so "where is this config key / status value
+  used?" is a graph query, not a grep. Query output ends with a
+  `# graph built at <timestamp>` line so you can judge freshness.
+
 ## Command Reference
 
 ### `nodesify-graphify run <path>`

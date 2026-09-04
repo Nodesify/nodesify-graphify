@@ -191,16 +191,7 @@ fn insert_edges_from(
     } else {
         "SELECT source, target, relation, confidence, confidence_score, source_file, NULL FROM edges"
     })?;
-    #[allow(clippy::type_complexity)]
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        String,
-        Option<f64>,
-        String,
-        Option<i64>,
-    )> = stmt
+    let rows: Vec<(String, String, String, String, Option<f64>, String, Option<i64>)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,

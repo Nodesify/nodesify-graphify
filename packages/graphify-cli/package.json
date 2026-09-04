@@ -47,7 +47,7 @@
     "tsx": "^4",
     "typescript": "^5",
     "@types/node": "^22",
-    "@napi-rs/cli": "^2"
+    "@napi-rs/cli": "^3"
   },
   "engines": {
     "node": ">=20"
