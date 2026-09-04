@@ -10,6 +10,11 @@ npm install -g @nodesify/graphify
 
 Requires no Rust toolchain — ships prebuilt native binaries via napi-rs.
 
+## What's new in 0.6.0
+
+- **Safe HTML graph viewer** — `export --format html --mode standard` matches the original Graphify 5,000-node limit; `--mode large` opts into a precomputed-layout viewer (physics-free, key nodes first, batched search) that opens instantly on any repo size
+- **Faster large-graph visualization** — Rust-computed positions, straight edges, arrow/legend caps, and a "Show all nodes" toggle replace the per-keystroke physics simulation that could hang the browser
+
 ## What's new in 0.5.0
 
 - **Deterministic clustering** — stable communities across runs, Newman modularity in report/stats
