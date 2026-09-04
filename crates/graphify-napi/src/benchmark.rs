@@ -53,8 +53,7 @@ pub fn run_benchmark(db: &Connection, db_path: &str) -> Result<BenchmarkResult> 
     let corpus_tokens = corpus_bytes / CHARS_PER_TOKEN;
 
     let (node_count, edge_count): (usize, usize) = {
-        let mut stmt =
-            db.prepare("SELECT (SELECT COUNT(*) FROM nodes), (SELECT COUNT(*) FROM edges)")?;
+        let mut stmt = db.prepare("SELECT (SELECT COUNT(*) FROM nodes), (SELECT COUNT(*) FROM edges)")?;
         let row = stmt.query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
         (row.0 as usize, row.1 as usize)
     };

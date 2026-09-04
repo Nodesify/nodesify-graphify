@@ -53,7 +53,7 @@ nodesify-graphify wiki [--out .graphify/wiki] [--max-nodes 25] [--graph .]  # Wi
 nodesify-graphify prs [20] [--conflicts] [--graph .]         # Map open PRs onto the graph - impact + merge-order risk
 nodesify-graphify stats [--graph .]                     # Node/edge/community counts
 nodesify-graphify status [--graph .]                    # Graph health and staleness
-nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml] [--mode standard|large] # Export graph; HTML defaults to standard
+nodesify-graphify export [--graph .] [--out graph.json] [--format json|html|graphml|cypher] [--mode standard|large] # Export graph; HTML defaults to standard
 nodesify-graphify cluster-only <path>                   # Re-cluster + analyze + report without re-extracting
 nodesify-graphify merge <pathA> <pathB> <outPath>       # Merge two graphs
 nodesify-graphify diff <pathA> <pathB>                  # Compare two graphs
@@ -86,6 +86,17 @@ nodesify-graphify export --graph . --format html --mode large --out graph-view.h
 ```
 
 Large mode precomputes node positions, disables physics, shows the highest-degree nodes first, supports debounced search and a “Show all nodes” toggle, caps the community legend, and disables expensive edge arrows for very large graphs. JSON and GraphML exports are unaffected by `--mode`.
+
+`--format cypher` writes an idempotent Neo4j import script (MERGE statements — safe to re-run):
+
+```bash
+nodesify-graphify export --graph . --format cypher --out graphify.cypher
+cypher-shell -u neo4j -p <password> -f graphify.cypher
+```
+
+### Token reduction benchmark
+
+Every `run` and `update` prints an honest cost measurement: corpus tokens (the real file sizes from the manifest) versus the tokens a graph query actually returns, sampled over five representative questions. On this repository: ~221,000 corpus tokens vs ~3,000 per query — **73x fewer tokens per query**. On tiny corpora it will honestly report <1x; there the graph's value is structure, not compression, and the output says so.
 
 ### Wiki export
 

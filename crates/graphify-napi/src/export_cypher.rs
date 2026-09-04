@@ -70,8 +70,9 @@ pub fn export_cypher(db: &Connection, out_path: &Path) -> Result<usize> {
 
     let mut count = 0usize;
     {
-        let mut stmt =
-            db.prepare("SELECT id, label, file_type, source_file, community FROM nodes")?;
+        let mut stmt = db.prepare(
+            "SELECT id, label, file_type, source_file, community FROM nodes",
+        )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -98,7 +99,8 @@ pub fn export_cypher(db: &Connection, out_path: &Path) -> Result<usize> {
     }
 
     {
-        let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
+        let mut stmt =
+            db.prepare("SELECT source, target, relation, confidence FROM edges")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
