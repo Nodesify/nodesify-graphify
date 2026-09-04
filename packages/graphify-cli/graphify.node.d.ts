@@ -75,7 +75,7 @@ export function graphStats(root: string): GraphStatsJs;
 export function getNode(root: string, nodeId: string): NodeJs | null;
 export function getNeighbors(root: string, nodeId: string): NodeJs[];
 export function exportJsonCmd(root: string, outPath: string): void;
-export function exportHtmlCmd(root: string, outPath: string): void;
+export function exportHtmlCmd(root: string, outPath: string, mode?: string): void;
 export function exportGraphmlCmd(root: string, outPath: string): void;
 export function queryGraph(
   root: string,

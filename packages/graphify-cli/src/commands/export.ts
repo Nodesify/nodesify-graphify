@@ -1,12 +1,12 @@
 import { exportJsonCmd, exportHtmlCmd, exportGraphmlCmd } from '../native';
 
-export async function exportCommand(opts: { graph: string; out: string; format: string }) {
+export async function exportCommand(opts: { graph: string; out: string; format: string; mode?: string }) {
   try {
     const format = opts.format || 'json';
 
     if (format === 'html') {
       const outPath = opts.out.replace(/\.json$/, '.html');
-      exportHtmlCmd(opts.graph, outPath);
+      exportHtmlCmd(opts.graph, outPath, opts.mode || 'standard');
       console.log(`Exported HTML to: ${outPath}`);
     } else if (format === 'graphml') {
       const outPath = opts.out.replace(/\.json$/, '.graphml');

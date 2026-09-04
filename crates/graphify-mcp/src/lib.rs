@@ -328,7 +328,8 @@ fn handle_message(db: &Connection, db_path: &str, msg: &Value) -> Option<Value> 
         "initialize" => json!({
             "protocolVersion": params.get("protocolVersion").and_then(|v| v.as_str()).unwrap_or(PROTOCOL_VERSION),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}
+            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            "instructions": "This server exposes a prebuilt knowledge graph of a codebase. Prefer these tools over grepping or browsing files: call repo_map first to orient, query_graph for natural-language questions about architecture or behavior, explain or get_neighbors for a specific symbol, shortest_path to trace how two things connect, and affected before changing a node to see the blast radius. If graph_stats reports 0 nodes, the graph has not been built yet — tell the user to run `nodesify-graphify run <path>`. After code edits, `nodesify-graphify update <path>` refreshes the graph."
         }),
         "ping" => json!({}),
         "tools/list" => json!({"tools": tools()}),
@@ -402,6 +403,22 @@ mod tests {
         assert_eq!(resp["id"], 1);
         assert_eq!(resp["result"]["serverInfo"]["name"], SERVER_NAME);
         assert!(resp["result"]["capabilities"]["tools"].is_object());
+    }
+
+    #[test]
+    fn initialize_includes_usage_instructions() {
+        let db = graphify_core::open_db_in_memory().unwrap();
+        let req = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}});
+        let resp = handle_message(&db, ":memory:", &msg(req)).unwrap();
+        let instructions = resp["result"]["instructions"].as_str().unwrap_or("");
+        assert!(
+            instructions.contains("repo_map") && instructions.contains("query_graph"),
+            "instructions should steer agents to the graph tools, got: {instructions}"
+        );
+        assert!(
+            instructions.contains("nodesify-graphify run"),
+            "instructions should tell agents how to build a missing graph, got: {instructions}"
+        );
     }
 
     #[test]

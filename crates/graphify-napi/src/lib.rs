@@ -191,10 +191,12 @@ pub fn export_json_cmd(root: String, out_path: String) -> napi::Result<()> {
 }
 
 #[napi]
-pub fn export_html_cmd(root: String, out_path: String) -> napi::Result<()> {
+pub fn export_html_cmd(root: String, out_path: String, mode: Option<String>) -> napi::Result<()> {
     let db = pipeline::load_graph_db(&PathBuf::from(&root))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    export_html::export_html(&db, &PathBuf::from(&out_path))
+    let mode = export_html::HtmlExportMode::parse(mode.as_deref().unwrap_or("standard"))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    export_html::export_html_with_mode(&db, &PathBuf::from(&out_path), mode)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(())
 }
@@ -221,13 +223,14 @@ pub fn query_graph(
     cursor: Option<i64>,
 ) -> napi::Result<QueryResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
-        &root_pb
-            .canonicalize()
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    )?);
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Load before touching path helpers: a missing graph must error without
+    // creating an empty `.graphify/` directory as a side effect.
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
     let (text, node_count, edge_count, next_cursor) = query::query_graph(
         &db,
         &db_path_str,
@@ -251,13 +254,14 @@ pub fn query_graph(
 #[napi]
 pub fn repo_map(root: String, budget: i64, detail: Option<String>) -> napi::Result<RepoMapJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
-        &root_pb
-            .canonicalize()
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    )?);
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Load before touching path helpers: a missing graph must error without
+    // creating an empty `.graphify/` directory as a side effect.
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
     let (text, files_shown) = query::repo_map(&db, &db_path_str, budget, min_strength_for(&detail))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(RepoMapJs {
@@ -275,13 +279,14 @@ pub fn find_path(
     detail: Option<String>,
 ) -> napi::Result<PathResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
-        &root_pb
-            .canonicalize()
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    )?);
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Load before touching path helpers: a missing graph must error without
+    // creating an empty `.graphify/` directory as a side effect.
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
     let (found, hops, text) = query::find_shortest_path(
         &db,
         &db_path_str,
@@ -301,13 +306,14 @@ pub fn find_path(
 #[napi]
 pub fn explain_node(root: String, node_id: String) -> napi::Result<Option<ExplainResultJs>> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
-        &root_pb
-            .canonicalize()
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    )?);
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Load before touching path helpers: a missing graph must error without
+    // creating an empty `.graphify/` directory as a side effect.
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
     let result = query::explain_with_neighbors(&db, &db_path_str, &node_id)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(result.map(|r| ExplainResultJs {
@@ -440,21 +446,28 @@ pub fn run_mcp_server(root: String) -> napi::Result<()> {
     let root_pb = root_pb
         .canonicalize()
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    let db_path =
-        graphify_paths::db_path(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    // Refuse to serve (or create) a graph that was never built: the MCP
+    // server is read-only, so a missing graph is a hard error — otherwise
+    // agents would connect to an empty graph with no hint why.
+    let db_path = root_pb.join(".graphify").join("db.sqlite");
+    if !db_path.exists() {
+        return Err(napi::Error::from_reason(format!(
+            "No graph found at {} — run `nodesify-graphify run <path>` first",
+            db_path.display()
+        )));
+    }
     graphify_mcp::serve(&db_path).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 #[napi]
 pub fn cluster_only(root: String) -> napi::Result<PipelineResultJs> {
     let root_pb = PathBuf::from(&root);
-    let db_path_str = graphify_paths::normalize(&graphify_paths::db_path(
-        &root_pb
-            .canonicalize()
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?,
-    )?);
+    let root_pb = root_pb
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let db_path_str = graphify_paths::normalize(&root_pb.join(".graphify").join("db.sqlite"));
 
     let cluster_result =
         graphify_cluster::cluster(&db).map_err(|e| napi::Error::from_reason(e.to_string()))?;

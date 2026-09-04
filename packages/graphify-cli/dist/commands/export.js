@@ -7,7 +7,7 @@ async function exportCommand(opts) {
         const format = opts.format || 'json';
         if (format === 'html') {
             const outPath = opts.out.replace(/\.json$/, '.html');
-            (0, native_1.exportHtmlCmd)(opts.graph, outPath);
+            (0, native_1.exportHtmlCmd)(opts.graph, outPath, opts.mode || 'standard');
             console.log(`Exported HTML to: ${outPath}`);
         }
         else if (format === 'graphml') {

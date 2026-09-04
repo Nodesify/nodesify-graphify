@@ -114,6 +114,7 @@ program
   .option('--graph <path>', 'Path to project root', '.')
   .option('--out <file>', 'Output file', 'graph.json')
   .option('--format <type>', 'Export format: json, html, graphml', 'json')
+  .option('--mode <mode>', 'HTML visualization mode: standard or large', 'standard')
   .action(exportCommand);
 
 program
@@ -184,6 +185,8 @@ program
 registerInstallCommand(program);
 registerHookCommand(program);
 
-program.parse();
+if (require.main === module) {
+  program.parse();
+}
 
 export { program };
