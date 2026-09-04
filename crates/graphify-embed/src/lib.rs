@@ -147,12 +147,14 @@ pub fn embed_missing_nodes(
     let mut descriptions: std::collections::HashMap<String, (Option<String>, Option<String>)> =
         std::collections::HashMap::new();
     {
-        let mut stmt =
-            db.prepare("SELECT id, docstring, signature FROM nodes")?;
+        let mut stmt = db.prepare("SELECT id, docstring, signature FROM nodes")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                (row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?),
+                (
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ),
             ))
         })?;
         for (id, desc) in rows.flatten() {
@@ -166,16 +168,13 @@ pub fn embed_missing_nodes(
         let texts: Vec<String> = chunk
             .iter()
             .map(|(id, label)| {
-                let (docstring, signature) = descriptions
-                    .get(id)
-                    .cloned()
-                    .unwrap_or((None, None));
+                let (docstring, signature) = descriptions.get(id).cloned().unwrap_or((None, None));
                 node_text(label, docstring.as_deref(), signature.as_deref())
             })
             .collect();
-        let vectors = embedder
-            .embed(texts, None)
-            .map_err(|e| graphify_core::GraphifyError::Graph(format!("embedding batch failed: {e}")))?;
+        let vectors = embedder.embed(texts, None).map_err(|e| {
+            graphify_core::GraphifyError::Graph(format!("embedding batch failed: {e}"))
+        })?;
         let tx = db.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare(
@@ -379,8 +378,13 @@ mod tests {
     #[ignore]
     fn real_model_embeds_and_scores() {
         let mut embedder = load_embedder().unwrap();
-        let auth = embed_one(&mut embedder, "user authentication and login session handling").unwrap();
-        let session = embed_one(&mut embedder, "SessionMiddleware validates session cookies").unwrap();
+        let auth = embed_one(
+            &mut embedder,
+            "user authentication and login session handling",
+        )
+        .unwrap();
+        let session =
+            embed_one(&mut embedder, "SessionMiddleware validates session cookies").unwrap();
         let math = embed_one(&mut embedder, "matrix determinant computation").unwrap();
         let sim_auth_session = cosine(&auth, &session);
         let sim_auth_math = cosine(&auth, &math);

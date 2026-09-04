@@ -504,15 +504,18 @@ pub struct SemanticCandidateJs {
 }
 
 #[napi]
-pub fn semantic_candidates(root: String, question: String) -> napi::Result<Vec<SemanticCandidateJs>> {
+pub fn semantic_candidates(
+    root: String,
+    question: String,
+) -> napi::Result<Vec<SemanticCandidateJs>> {
     let root_pb = PathBuf::from(&root);
     let db =
         pipeline::load_graph_db(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     if !graphify_embed::has_embeddings(&db) || !graphify_embed::model_cached() {
         return Ok(Vec::new());
     }
-    let mut embedder = graphify_embed::load_embedder()
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let mut embedder =
+        graphify_embed::load_embedder().map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let scores = graphify_embed::semantic_scores(&db, &mut embedder, &question)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(scores
