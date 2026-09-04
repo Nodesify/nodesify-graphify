@@ -9,6 +9,7 @@ Use the graph when it is faster or clearer than manually tracing relationships:
 
 - `nodesify-graphify query "exact symbol or implementation question" --graph .`
 - `nodesify-graphify map --graph .`
+- `nodesify-graphify wiki --graph .` — markdown wiki under `.graphify/wiki/`; read `index.md` for a navigable overview
 - `nodesify-graphify export --format html --graph .`
 - `nodesify-graphify stats --graph .`
 

@@ -38,17 +38,11 @@ const path = __importStar(require("path"));
 const native_1 = require("../native");
 async function wikiCommand(opts) {
     try {
+        const maxNodes = parseInt(opts.maxNodes, 10) || 25;
+        const count = (0, native_1.exportWiki)(opts.graph, opts.out, maxNodes);
         const resolved = path.isAbsolute(opts.out)
             ? opts.out
             : path.join(opts.graph, opts.out);
-        if (opts.format === 'obsidian') {
-            const notes = (0, native_1.exportObsidian)(opts.graph, opts.out);
-            console.log(`Obsidian vault exported: ${notes} notes -> ${resolved}`);
-            console.log(`Open ${resolved} as a vault in Obsidian (graphify.canvas included)`);
-            return;
-        }
-        const maxNodes = parseInt(opts.maxNodes, 10) || 25;
-        const count = (0, native_1.exportWiki)(opts.graph, opts.out, maxNodes);
         console.log(`Wiki exported: ${count} articles -> ${resolved}`);
         console.log(`Start at: ${path.join(resolved, 'index.md')}`);
     }

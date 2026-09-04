@@ -13,6 +13,7 @@ const map_1 = require("./commands/map");
 const affected_1 = require("./commands/affected");
 const mcp_1 = require("./commands/mcp");
 const tree_1 = require("./commands/tree");
+const wiki_1 = require("./commands/wiki");
 const prs_1 = require("./commands/prs");
 const add_1 = require("./commands/add");
 const update_1 = require("./commands/update");
@@ -37,6 +38,7 @@ program
     .option('--no-dedup', 'Skip near-duplicate node merging')
     .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
     .option('--model <name>', 'Semantic LLM model name (backend-specific)')
+    .option('--wiki', 'Also export a markdown wiki to .graphify/wiki')
     .action(run_1.runCommand);
 program
     .command('update')
@@ -143,6 +145,13 @@ program
     .option('--out <file>', 'Output HTML file', 'tree.html')
     .option('--max-children <n>', 'Max symbols shown per directory', '40')
     .action(tree_1.treeCommand);
+program
+    .command('wiki')
+    .description('Export a Wikipedia-style markdown wiki (index.md + one article per community and god node)')
+    .option('--graph <path>', 'Path to project root', '.')
+    .option('--out <dir>', 'Output directory', '.graphify/wiki')
+    .option('--max-nodes <n>', 'Max key concepts listed per community article', '25')
+    .action(wiki_1.wikiCommand);
 program
     .command('prs')
     .description('Map open pull requests onto the knowledge graph (impact + merge-order risk)')

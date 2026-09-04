@@ -36,7 +36,7 @@ const commandNames = program.commands.map((c: Command) => c.name());
 const allCommands = [
   'run', 'update', 'watch', 'explain', 'query', 'path', 'map', 'affected',
   'stats', 'export', 'cluster-only', 'merge', 'diff', 'history', 'mcp',
-  'tree', 'prs', 'add', 'status', 'install', 'uninstall', 'hook',
+  'tree', 'wiki', 'prs', 'add', 'status', 'install', 'uninstall', 'hook',
 ];
 for (const cmd of allCommands) {
   assert(commandNames.includes(cmd), `Command "${cmd}" should be registered`);
@@ -63,7 +63,7 @@ for (const opt of ['--dfs', '--depth', '--budget', '--directed', '--detail', '--
 }
 
 const runOpts = optsOf('run');
-for (const opt of ['--no-dedup', '--backend', '--model']) {
+for (const opt of ['--no-dedup', '--backend', '--model', '--wiki']) {
   assert(runOpts.includes(opt), `run should have ${opt}`);
 }
 
@@ -104,6 +104,9 @@ for (const opt of ['--author', '--contributor', '--graph']) {
 }
 for (const opt of ['--max-children', '--out', '--graph']) {
   assert(optsOf('tree').includes(opt), `tree should have ${opt}`);
+}
+for (const opt of ['--out', '--max-nodes', '--graph']) {
+  assert(optsOf('wiki').includes(opt), `wiki should have ${opt}`);
 }
 assert(optsOf('prs').includes('--conflicts'), 'prs should have --conflicts');
 assert(optsOf('status').includes('--graph'), 'status should have --graph');

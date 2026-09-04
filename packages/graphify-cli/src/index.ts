@@ -11,6 +11,7 @@ import { mapCommand } from './commands/map';
 import { affectedCommand } from './commands/affected';
 import { mcpCommand } from './commands/mcp';
 import { treeCommand } from './commands/tree';
+import { wikiCommand } from './commands/wiki';
 import { prsCommand } from './commands/prs';
 import { addCommand } from './commands/add';
 import { updateCommand } from './commands/update';
@@ -37,6 +38,7 @@ program
   .option('--no-dedup', 'Skip near-duplicate node merging')
   .option('--backend <name>', 'Semantic LLM backend: claude, openai (any OpenAI-compatible), or gemini')
   .option('--model <name>', 'Semantic LLM model name (backend-specific)')
+  .option('--wiki', 'Also export a markdown wiki to .graphify/wiki')
   .action(runCommand);
 
 program
@@ -158,6 +160,14 @@ program
   .option('--out <file>', 'Output HTML file', 'tree.html')
   .option('--max-children <n>', 'Max symbols shown per directory', '40')
   .action(treeCommand);
+
+program
+  .command('wiki')
+  .description('Export a Wikipedia-style markdown wiki (index.md + one article per community and god node)')
+  .option('--graph <path>', 'Path to project root', '.')
+  .option('--out <dir>', 'Output directory', '.graphify/wiki')
+  .option('--max-nodes <n>', 'Max key concepts listed per community article', '25')
+  .action(wikiCommand);
 
 program
   .command('prs')

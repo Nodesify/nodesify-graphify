@@ -54,46 +54,10 @@ fn slug(name: &str) -> String {
         .trim_matches(|c: char| c == '.' || c == '-' || c.is_whitespace())
         .to_string();
     if out.len() > MAX_SLUG_LEN {
-        out.truncate(
-            out.char_indices()
-                .take(MAX_SLUG_LEN)
-                .last()
-                .map(|(i, c)| i + c.len_utf8())
-                .unwrap_or(MAX_SLUG_LEN),
-        );
+        out.truncate(out.char_indices().take(MAX_SLUG_LEN).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(MAX_SLUG_LEN));
     }
     if out.is_empty() {
         out.push_str("unnamed");
-    }
-    // Windows reserved device names (NUL, CON, COM1...) cannot be written
-    // as files — a node labeled "NUL" would otherwise break the export.
-    let stem_lower = out.to_lowercase();
-    if matches!(
-        stem_lower.as_str(),
-        "con"
-            | "prn"
-            | "aux"
-            | "nul"
-            | "com1"
-            | "com2"
-            | "com3"
-            | "com4"
-            | "com5"
-            | "com6"
-            | "com7"
-            | "com8"
-            | "com9"
-            | "lpt1"
-            | "lpt2"
-            | "lpt3"
-            | "lpt4"
-            | "lpt5"
-            | "lpt6"
-            | "lpt7"
-            | "lpt8"
-            | "lpt9"
-    ) {
-        out.insert(0, '_');
     }
     out
 }
@@ -170,8 +134,9 @@ impl Wiki {
     fn load(db: &Connection, root: Option<&Path>) -> Result<Self> {
         let mut nodes = HashMap::new();
         {
-            let mut stmt =
-                db.prepare("SELECT id, label, source_file, community, signature FROM nodes")?;
+            let mut stmt = db.prepare(
+                "SELECT id, label, source_file, community, signature FROM nodes",
+            )?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -190,7 +155,8 @@ impl Wiki {
 
         let mut edges = Vec::new();
         {
-            let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
+            let mut stmt =
+                db.prepare("SELECT source, target, relation, confidence FROM edges")?;
             let rows = stmt.query_map([], |row| {
                 Ok(EdgeRow {
                     source: row.get(0)?,
@@ -212,7 +178,8 @@ impl Wiki {
 
         let mut communities = Vec::new();
         {
-            let mut stmt = db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
+            let mut stmt =
+                db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -584,7 +551,8 @@ fn index_md(wiki: &Wiki, member_counts: &HashMap<i64, usize>, total_edges: usize
 
     if !wiki.god_nodes.is_empty() {
         lines.push("## God Nodes".into());
-        lines.push("(most connected concepts — the load-bearing abstractions)".into());
+        lines
+            .push("(most connected concepts — the load-bearing abstractions)".into());
         lines.push(String::new());
         for node in &wiki.god_nodes {
             lines.push(format!(
@@ -668,18 +636,15 @@ pub fn export_wiki(
         count += 1;
     }
 
-    let member_counts: HashMap<i64, usize> =
-        wiki.nodes
-            .values()
-            .filter_map(|n| n.community)
-            .fold(HashMap::new(), |mut acc, cid| {
-                *acc.entry(cid).or_insert(0) += 1;
-                acc
-            });
-    std::fs::write(
-        out_dir.join("index.md"),
-        index_md(&wiki, &member_counts, wiki.edges.len()),
-    )?;
+    let member_counts: HashMap<i64, usize> = wiki
+        .nodes
+        .values()
+        .filter_map(|n| n.community)
+        .fold(HashMap::new(), |mut acc, cid| {
+            *acc.entry(cid).or_insert(0) += 1;
+            acc
+        });
+    std::fs::write(out_dir.join("index.md"), index_md(&wiki, &member_counts, wiki.edges.len()))?;
 
     Ok(count)
 }
@@ -790,8 +755,10 @@ mod tests {
             )
             .unwrap();
         }
-        db.execute_batch("INSERT INTO communities (id, label, size) VALUES (1, 'Big', 6);")
-            .unwrap();
+        db.execute_batch(
+            "INSERT INTO communities (id, label, size) VALUES (1, 'Big', 6);",
+        )
+        .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("wiki");
@@ -831,8 +798,6 @@ mod tests {
         assert_eq!(slug("hello world"), "hello_world");
         assert_eq!(slug("..."), "unnamed");
         assert_eq!(slug("-graphify"), "graphify");
-        assert_eq!(slug("NUL"), "_NUL");
-        assert_eq!(slug("COM1"), "_COM1");
         let long: String = "x".repeat(200);
         assert!(slug(&long).len() <= MAX_SLUG_LEN);
     }

@@ -48,6 +48,11 @@ async function runCommand(path, opts) {
         console.log(`Edges added: ${result.edgesAdded}`);
         console.log(`Communities: ${result.communities}`);
         console.log(`Report written to: ${pathMod.join(path, '.graphify', 'graph_report.md')}`);
+        if (opts.wiki) {
+            const outDir = pathMod.join(path, '.graphify', 'wiki');
+            const articles = (0, native_1.exportWiki)(path, outDir, 25);
+            console.log(`Wiki written: ${articles} articles -> ${pathMod.join(outDir, 'index.md')}`);
+        }
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

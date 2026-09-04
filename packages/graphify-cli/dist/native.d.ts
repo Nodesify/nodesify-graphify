@@ -15,5 +15,6 @@ export declare const graphHistory: any;
 export declare const affectedNode: any;
 export declare const runMcpServer: any;
 export declare const exportTree: any;
+export declare const exportWiki: any;
 export declare const ingestUrl: any;
 //# sourceMappingURL=native.d.ts.map
