@@ -21,12 +21,19 @@ graphify-mcp = { workspace = true }
 graphify-ingest = { workspace = true }
 graphify-paths = { workspace = true }
 graphify-semantic = { workspace = true }
-graphify-embed = { workspace = true }
+graphify-embed = { workspace = true, optional = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 petgraph = { workspace = true }
 sha2 = { workspace = true }
+
+[features]
+# Local embeddings (fastembed/ONNX). Off for release targets where ONNX
+# Runtime ships no prebuilt binaries (x86_64-apple-darwin) — those builds
+# error clearly when --embed is requested.
+default = ["embed"]
+embed = ["dep:graphify-embed"]
 
 [build-dependencies]
 napi-build = "2"

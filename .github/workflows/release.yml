@@ -45,6 +45,9 @@ jobs:
             target: x86_64-apple-darwin
             platform: darwin-x64
             lib: libgraphify_napi.dylib
+            # ONNX Runtime ships no prebuilt binaries for Intel Mac — this
+            # build drops the embed feature (clear runtime error on --embed)
+            cargo-flags: --no-default-features
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -68,7 +71,7 @@ jobs:
       - name: Build native binary
         env:
           NAPI_RS_CLI_VERSION: '2.18.4'
-        run: cargo build --release --target ${{ matrix.target }} -p graphify-napi
+        run: cargo build --release --target ${{ matrix.target }} -p graphify-napi ${{ matrix.cargo-flags }}
       - name: Copy artifact (Linux/macOS)
         if: runner.os != 'Windows'
         run: cp target/${{ matrix.target }}/release/${{ matrix.lib }} packages/graphify-cli/dist/graphify.node
