@@ -184,6 +184,8 @@ program
 registerInstallCommand(program);
 registerHookCommand(program);
 
-program.parse();
+if (require.main === module) {
+  program.parse();
+}
 
 export { program };
