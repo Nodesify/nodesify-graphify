@@ -164,5 +164,7 @@ program
     .action(status_1.statusCommand);
 (0, install_1.registerInstallCommand)(program);
 (0, hook_1.registerHookCommand)(program);
-program.parse();
+if (require.main === module) {
+    program.parse();
+}
 //# sourceMappingURL=index.js.map

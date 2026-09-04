@@ -487,7 +487,17 @@ pub fn export_json(db: &Connection, out_path: &Path) -> graphify_core::Result<()
     Ok(())
 }
 
+/// Open an existing graph database. Unlike `db::open_db`, this never creates
+/// anything — a missing graph is a hard error so read-only commands (stats,
+/// query, explain, export, ...) fail loudly instead of silently materializing
+/// an empty `.graphify/` directory wherever they were pointed.
 pub fn load_graph_db(root: &Path) -> graphify_core::Result<Connection> {
-    let p = graphify_paths::db_path(root)?;
+    let p = root.join(".graphify").join("db.sqlite");
+    if !p.exists() {
+        return Err(graphify_core::GraphifyError::Graph(format!(
+            "No graph found at {} — run `nodesify-graphify run <path>` first",
+            p.display()
+        )));
+    }
     db::open_db(&p)
 }
