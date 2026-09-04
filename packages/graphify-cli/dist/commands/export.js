@@ -15,6 +15,11 @@ async function exportCommand(opts) {
             (0, native_1.exportGraphmlCmd)(opts.graph, outPath);
             console.log(`Exported GraphML to: ${outPath}`);
         }
+        else if (format === 'cypher') {
+            const outPath = opts.out.replace(/\.json$/, '.cypher');
+            const statements = (0, native_1.exportCypherCmd)(opts.graph, outPath);
+            console.log(`Exported Cypher to: ${outPath} (${statements} MERGE statements — idempotent, safe to re-run)`);
+        }
         else {
             (0, native_1.exportJsonCmd)(opts.graph, opts.out);
             console.log(`Exported JSON to: ${opts.out}`);

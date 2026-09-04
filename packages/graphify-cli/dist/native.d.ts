@@ -5,6 +5,8 @@ export declare const explainNode: any;
 export declare const exportJsonCmd: any;
 export declare const exportHtmlCmd: any;
 export declare const exportGraphmlCmd: any;
+export declare const exportCypherCmd: any;
+export declare const tokenBenchmark: any;
 export declare const queryGraph: any;
 export declare const repoMap: any;
 export declare const findPath: any;

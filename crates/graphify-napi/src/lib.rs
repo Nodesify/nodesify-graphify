@@ -1,3 +1,5 @@
+pub mod benchmark;
+pub mod export_cypher;
 pub mod export_graphml;
 pub mod export_html;
 pub mod export_tree;
@@ -214,6 +216,25 @@ pub fn export_graphml_cmd(root: String, out_path: String) -> napi::Result<()> {
     export_graphml::export_graphml(&db, &PathBuf::from(&out_path))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(())
+}
+
+#[napi]
+pub fn export_cypher_cmd(root: String, out_path: String) -> napi::Result<i32> {
+    let db = pipeline::load_graph_db(&PathBuf::from(&root))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let count = export_cypher::export_cypher(&db, &PathBuf::from(&out_path))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(count as i32)
+}
+
+/// Token-reduction benchmark block for the CLI to print after a pipeline
+/// run. Empty string when no sample question matches the graph.
+#[napi]
+pub fn token_benchmark(root: String) -> napi::Result<String> {
+    let root_pb = PathBuf::from(&root)
+        .canonicalize()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    benchmark::benchmark_for_root(&root_pb).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 #[napi]

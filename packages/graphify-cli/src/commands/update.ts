@@ -1,6 +1,6 @@
 import * as pathMod from 'path';
 import { existsSync } from 'fs';
-import { updatePipeline, exportWiki } from '../native';
+import { updatePipeline, exportWiki, tokenBenchmark } from '../native';
 
 export async function updateCommand(
   path: string,
@@ -20,6 +20,8 @@ export async function updateCommand(
       const articles = exportWiki(path, wikiDir, 25);
       console.log(`Wiki regenerated: ${articles} articles -> ${pathMod.join(wikiDir, 'index.md')}`);
     }
+    const benchmark = tokenBenchmark(path);
+    if (benchmark) console.log(benchmark);
   } catch (e: any) {
     console.error(`Error: ${e.message || e}`);
     process.exitCode = 1;

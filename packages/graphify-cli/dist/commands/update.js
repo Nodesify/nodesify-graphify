@@ -54,6 +54,9 @@ async function updateCommand(path, opts) {
             const articles = (0, native_1.exportWiki)(path, wikiDir, 25);
             console.log(`Wiki regenerated: ${articles} articles -> ${pathMod.join(wikiDir, 'index.md')}`);
         }
+        const benchmark = (0, native_1.tokenBenchmark)(path);
+        if (benchmark)
+            console.log(benchmark);
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

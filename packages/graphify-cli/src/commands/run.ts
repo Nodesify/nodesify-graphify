@@ -1,5 +1,5 @@
 import * as pathMod from 'path';
-import { runPipeline, exportWiki } from '../native';
+import { runPipeline, exportWiki, tokenBenchmark } from '../native';
 
 export async function runCommand(
   path: string,
@@ -19,6 +19,8 @@ export async function runCommand(
       const articles = exportWiki(path, outDir, 25);
       console.log(`Wiki written: ${articles} articles -> ${pathMod.join(outDir, 'index.md')}`);
     }
+    const benchmark = tokenBenchmark(path);
+    if (benchmark) console.log(benchmark);
   } catch (e: any) {
     console.error(`Error: ${e.message || e}`);
     process.exitCode = 1;

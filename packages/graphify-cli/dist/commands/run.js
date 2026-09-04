@@ -53,6 +53,9 @@ async function runCommand(path, opts) {
             const articles = (0, native_1.exportWiki)(path, outDir, 25);
             console.log(`Wiki written: ${articles} articles -> ${pathMod.join(outDir, 'index.md')}`);
         }
+        const benchmark = (0, native_1.tokenBenchmark)(path);
+        if (benchmark)
+            console.log(benchmark);
     }
     catch (e) {
         console.error(`Error: ${e.message || e}`);

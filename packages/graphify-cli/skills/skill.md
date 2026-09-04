@@ -204,11 +204,12 @@ Graph staleness check: fresh/stale/very_stale with age in minutes.
 
 ### `nodesify-graphify export [options]`
 
-Export graph to JSON, HTML, or GraphML.
+Export graph to JSON, HTML, GraphML, or Cypher (Neo4j).
 
 ```
 nodesify-graphify export --format html --out graph.html
 nodesify-graphify export --format graphml --out graph.graphml
+nodesify-graphify export --format cypher --out graphify.cypher   # idempotent MERGE script for Neo4j
 ```
 
 ### `nodesify-graphify wiki [options]`

@@ -103,10 +103,10 @@ program
     .action(stats_1.statsCommand);
 program
     .command('export')
-    .description('Export graph to JSON, HTML, or GraphML')
+    .description('Export graph to JSON, HTML, GraphML, or Cypher (Neo4j)')
     .option('--graph <path>', 'Path to project root', '.')
     .option('--out <file>', 'Output file', 'graph.json')
-    .option('--format <type>', 'Export format: json, html, graphml', 'json')
+    .option('--format <type>', 'Export format: json, html, graphml, cypher', 'json')
     .option('--mode <mode>', 'HTML visualization mode: standard or large', 'standard')
     .action(export_1.exportCommand);
 program
