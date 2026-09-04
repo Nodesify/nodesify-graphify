@@ -29,6 +29,8 @@ function getPlatformSuffix() {
 function loadNativeBinding() {
     for (const candidate of [
         (0, path_1.join)(__dirname, '..', 'graphify.node'),
+        // tsx runs tests from src/, where CI's built binary lands in dist/
+        (0, path_1.join)(__dirname, '..', 'dist', 'graphify.node'),
         (0, path_1.join)(__dirname, 'graphify.node'),
     ]) {
         if ((0, fs_1.existsSync)(candidate))
