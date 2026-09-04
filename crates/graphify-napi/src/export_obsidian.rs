@@ -45,8 +45,7 @@ fn note_name(label: &str) -> String {
     let mut out: String = label
         .chars()
         .map(|c| match c {
-            '#' | '^' | '[' | ']' | '|' | '<' | '>' | ':' | '"' | '/' | '\\'
-            | '*' | '?' => '-',
+            '#' | '^' | '[' | ']' | '|' | '<' | '>' | ':' | '"' | '/' | '\\' | '*' | '?' => '-',
             c if c.is_whitespace() => '_',
             c => c,
         })
@@ -71,9 +70,28 @@ fn note_name(label: &str) -> String {
     let stem_lower = out.to_lowercase();
     if matches!(
         stem_lower.as_str(),
-        "con" | "prn" | "aux" | "nul"
-            | "com1" | "com2" | "com3" | "com4" | "com5" | "com6" | "com7" | "com8" | "com9"
-            | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5" | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+        "con"
+            | "prn"
+            | "aux"
+            | "nul"
+            | "com1"
+            | "com2"
+            | "com3"
+            | "com4"
+            | "com5"
+            | "com6"
+            | "com7"
+            | "com8"
+            | "com9"
+            | "lpt1"
+            | "lpt2"
+            | "lpt3"
+            | "lpt4"
+            | "lpt5"
+            | "lpt6"
+            | "lpt7"
+            | "lpt8"
+            | "lpt9"
     ) {
         out.insert(0, '_');
     }
@@ -84,7 +102,13 @@ fn note_name(label: &str) -> String {
 fn tag_segment(name: &str) -> String {
     let cleaned: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' || c == '/' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' || c == '/' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if cleaned.is_empty() {
         "unnamed".to_string()
@@ -139,8 +163,7 @@ impl Vault {
 
         let mut edges = Vec::new();
         {
-            let mut stmt =
-                db.prepare("SELECT source, target, relation, confidence FROM edges")?;
+            let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
             let rows = stmt.query_map([], |row| {
                 Ok(EdgeRow {
                     source: row.get(0)?,
@@ -162,8 +185,7 @@ impl Vault {
 
         let mut communities = Vec::new();
         {
-            let mut stmt =
-                db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
+            let mut stmt = db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -179,10 +201,8 @@ impl Vault {
         // Unique note stems (wikilinks must resolve to exactly one note).
         let mut note_stems = HashMap::new();
         let mut used: HashSet<String> = HashSet::new();
-        let mut by_label: Vec<(&String, &String)> = nodes
-            .iter()
-            .map(|(id, n)| (&n.label, id))
-            .collect();
+        let mut by_label: Vec<(&String, &String)> =
+            nodes.iter().map(|(id, n)| (&n.label, id)).collect();
         by_label.sort(); // deterministic collision suffixes
         for (label, id) in by_label {
             let base = note_name(label);
@@ -265,7 +285,10 @@ fn node_note(vault: &Vault, id: &str, node: &NodeRow) -> String {
     let comm_tag = format!("community/{}", tag_segment(&community));
     lines.push("---".to_string());
     lines.push(format!("tags: [{ftype_tag}, {conf_tag}, {comm_tag}]"));
-    lines.push(format!("source: \"{}\"", node.source_file.replace('\\', "/").replace('"', "'")));
+    lines.push(format!(
+        "source: \"{}\"",
+        node.source_file.replace('\\', "/").replace('"', "'")
+    ));
     lines.push(format!(
         "degree: {}",
         vault.degrees.get(id).copied().unwrap_or(0)
@@ -521,7 +544,10 @@ pub fn export_obsidian(db: &Connection, out_dir: &Path) -> Result<usize> {
         count += 1;
     }
 
-    std::fs::write(out_dir.join("graphify.canvas"), canvas_json(&vault, &members))?;
+    std::fs::write(
+        out_dir.join("graphify.canvas"),
+        canvas_json(&vault, &members),
+    )?;
 
     Ok(count)
 }
@@ -568,7 +594,10 @@ mod tests {
         // duplicate calls edges collapse; wikilink targets the Beta note
         assert!(alpha.contains("[[Beta()|Beta()]] `EXTRACTED`"));
         let calls_block = alpha.split("### calls").nth(1).unwrap();
-        assert_eq!(calls_block.matches("- [[Beta()]]").count() + calls_block.matches("[[Beta()|").count(), 1);
+        assert_eq!(
+            calls_block.matches("- [[Beta()]]").count() + calls_block.matches("[[Beta()|").count(),
+            1
+        );
 
         let core = std::fs::read_to_string(out.join("_COMMUNITY_Core.md")).unwrap();
         assert!(core.contains("# Core"));
@@ -577,14 +606,8 @@ mod tests {
         let canvas = std::fs::read_to_string(out.join("graphify.canvas")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&canvas).unwrap();
         let nodes = parsed["nodes"].as_array().unwrap();
-        let groups = nodes
-            .iter()
-            .filter(|n| n["type"] == "group")
-            .count();
-        let cards = nodes
-            .iter()
-            .filter(|n| n["type"] == "file")
-            .count();
+        let groups = nodes.iter().filter(|n| n["type"] == "group").count();
+        let cards = nodes.iter().filter(|n| n["type"] == "file").count();
         assert_eq!(groups, 2);
         assert_eq!(cards, 3);
         let edges = parsed["edges"].as_array().unwrap();

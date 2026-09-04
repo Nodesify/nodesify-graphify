@@ -837,7 +837,8 @@ fn record_query_pairs(
         .map(|idx| (loaded.graph.neighbors(*idx).count(), idx))
         .collect();
     discoveries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
-    let top_discoveries: Vec<&NodeIndex> = discoveries.iter().map(|(_, idx)| *idx).take(5).collect();
+    let top_discoveries: Vec<&NodeIndex> =
+        discoveries.iter().map(|(_, idx)| *idx).take(5).collect();
 
     for seed in &top_seeds {
         for discovery in &top_discoveries {
@@ -1217,18 +1218,43 @@ mod tests {
 
         // token-only: no match (unique db_path — the graph cache is keyed
         // by db_path, and ":memory:" would collide across tests)
-        let (text, nodes, _, _) =
-            query_graph(&db, "mem-semantic-test", "auth flow", "bfs", 2, 500, false, 0.0, 0).unwrap();
-        assert!(text.contains("No matching nodes"), "token-only should miss: {text}");
+        let (text, nodes, _, _) = query_graph(
+            &db,
+            "mem-semantic-test",
+            "auth flow",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+        )
+        .unwrap();
+        assert!(
+            text.contains("No matching nodes"),
+            "token-only should miss: {text}"
+        );
         assert_eq!(nodes, 0);
 
         // with a semantic candidate the traversal runs
         let semantic = vec![("m".to_string(), 0.9), ("v".to_string(), 0.7)];
         let (text, nodes, _, _) = query_graph_with_semantic(
-            &db, "mem-semantic-test", "auth flow", "bfs", 2, 500, false, 0.0, 0, &semantic,
+            &db,
+            "mem-semantic-test",
+            "auth flow",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+            &semantic,
         )
         .unwrap();
-        assert!(text.contains("SessionMiddleware"), "semantic seed should drive traversal: {text}");
+        assert!(
+            text.contains("SessionMiddleware"),
+            "semantic seed should drive traversal: {text}"
+        );
         assert!(nodes > 0);
     }
 
@@ -1259,7 +1285,18 @@ mod tests {
         // two distinct questions whose traversals connect the same pair
         // (both must token-match: unmatched questions return early)
         for question in ["session handling", "session validation"] {
-            query_graph(&db, "mem-pairs-test", question, "bfs", 2, 500, false, 0.0, 0).unwrap();
+            query_graph(
+                &db,
+                "mem-pairs-test",
+                question,
+                "bfs",
+                2,
+                500,
+                false,
+                0.0,
+                0,
+            )
+            .unwrap();
         }
 
         let recorded: i64 = db
@@ -1272,9 +1309,23 @@ mod tests {
         assert_eq!(promoted, 0, "needs min_hits across distinct questions");
 
         // one more repeat pushes hits over the bar
-        query_graph(&db, "mem-pairs-test", "session validation", "bfs", 2, 500, false, 0.0, 0).unwrap();
+        query_graph(
+            &db,
+            "mem-pairs-test",
+            "session validation",
+            "bfs",
+            2,
+            500,
+            false,
+            0.0,
+            0,
+        )
+        .unwrap();
         let promoted = promote_learned_edges(&db, 2, 3).unwrap();
-        assert!(promoted > 0, "recurring pairs across questions should promote");
+        assert!(
+            promoted > 0,
+            "recurring pairs across questions should promote"
+        );
 
         let (relation, confidence, score, source): (String, String, f64, String) = db
             .query_row(
