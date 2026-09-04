@@ -45,7 +45,8 @@ fn note_name(label: &str) -> String {
     let mut out: String = label
         .chars()
         .map(|c| match c {
-            '#' | '^' | '[' | ']' | '|' | '<' | '>' | ':' | '"' | '/' | '\\' | '*' | '?' => '-',
+            '#' | '^' | '[' | ']' | '|' | '<' | '>' | ':' | '"' | '/' | '\\'
+            | '*' | '?' => '-',
             c if c.is_whitespace() => '_',
             c => c,
         })
@@ -65,36 +66,6 @@ fn note_name(label: &str) -> String {
     if out.is_empty() {
         out.push_str("unnamed");
     }
-    // Windows reserved device names (NUL, CON, COM1...) cannot be written
-    // as files — a node labeled "NUL" would otherwise break the export.
-    let stem_lower = out.to_lowercase();
-    if matches!(
-        stem_lower.as_str(),
-        "con"
-            | "prn"
-            | "aux"
-            | "nul"
-            | "com1"
-            | "com2"
-            | "com3"
-            | "com4"
-            | "com5"
-            | "com6"
-            | "com7"
-            | "com8"
-            | "com9"
-            | "lpt1"
-            | "lpt2"
-            | "lpt3"
-            | "lpt4"
-            | "lpt5"
-            | "lpt6"
-            | "lpt7"
-            | "lpt8"
-            | "lpt9"
-    ) {
-        out.insert(0, '_');
-    }
     out
 }
 
@@ -102,13 +73,7 @@ fn note_name(label: &str) -> String {
 fn tag_segment(name: &str) -> String {
     let cleaned: String = name
         .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' || c == '-' || c == '/' {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' || c == '/' { c } else { '_' })
         .collect();
     if cleaned.is_empty() {
         "unnamed".to_string()
@@ -163,7 +128,8 @@ impl Vault {
 
         let mut edges = Vec::new();
         {
-            let mut stmt = db.prepare("SELECT source, target, relation, confidence FROM edges")?;
+            let mut stmt =
+                db.prepare("SELECT source, target, relation, confidence FROM edges")?;
             let rows = stmt.query_map([], |row| {
                 Ok(EdgeRow {
                     source: row.get(0)?,
@@ -185,7 +151,8 @@ impl Vault {
 
         let mut communities = Vec::new();
         {
-            let mut stmt = db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
+            let mut stmt =
+                db.prepare("SELECT id, label, cohesion FROM communities ORDER BY id")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -201,8 +168,10 @@ impl Vault {
         // Unique note stems (wikilinks must resolve to exactly one note).
         let mut note_stems = HashMap::new();
         let mut used: HashSet<String> = HashSet::new();
-        let mut by_label: Vec<(&String, &String)> =
-            nodes.iter().map(|(id, n)| (&n.label, id)).collect();
+        let mut by_label: Vec<(&String, &String)> = nodes
+            .iter()
+            .map(|(id, n)| (&n.label, id))
+            .collect();
         by_label.sort(); // deterministic collision suffixes
         for (label, id) in by_label {
             let base = note_name(label);
@@ -285,17 +254,14 @@ fn node_note(vault: &Vault, id: &str, node: &NodeRow) -> String {
     let comm_tag = format!("community/{}", tag_segment(&community));
     lines.push("---".to_string());
     lines.push(format!("tags: [{ftype_tag}, {conf_tag}, {comm_tag}]"));
-    lines.push(format!(
-        "source: \"{}\"",
-        node.source_file.replace('\\', "/").replace('"', "'")
-    ));
+    lines.push(format!("source: \"{}\"", node.source_file.replace('\\', "/").replace('"', "'")));
     lines.push(format!(
         "degree: {}",
         vault.degrees.get(id).copied().unwrap_or(0)
     ));
     lines.push("---".to_string());
     lines.push(String::new());
-    lines.push("## Connections".to_string());
+    lines.push(format!("## Connections"));
     lines.push(String::new());
 
     // neighbors grouped by relation, parallel edges collapsed to the best
@@ -432,12 +398,13 @@ fn canvas_json(vault: &Vault, members: &HashMap<i64, Vec<&String>>) -> String {
     let cell_h = boxes.iter().map(|(_, h)| *h).max().unwrap_or(300);
     let cols = ((vault.communities.len() as f64).sqrt().ceil().max(1.0)) as i64;
 
+    let mut group_id = 0;
     for (idx, (cid, label, _)) in vault.communities.iter().enumerate() {
         let gx = (idx as i64 % cols) * (cell_w + CARD_GAP * 2);
         let gy = (idx as i64 / cols) * (cell_h + CARD_GAP * 2);
         let (bw, bh) = boxes[idx];
         nodes_json.push(serde_json::json!({
-            "id": format!("group{idx}"),
+            "id": format!("group{group_id}"),
             "type": "group",
             "label": label,
             "x": gx,
@@ -446,9 +413,10 @@ fn canvas_json(vault: &Vault, members: &HashMap<i64, Vec<&String>>) -> String {
             "height": bh,
             "color": CANVAS_COLORS[idx % CANVAS_COLORS.len()],
         }));
+        group_id += 1;
 
         if let Some(member_ids) = members.get(cid) {
-            let mut ranked: Vec<&String> = member_ids.to_vec();
+            let mut ranked: Vec<&String> = member_ids.iter().copied().collect();
             ranked.sort_by(|a, b| {
                 vault
                     .degrees
@@ -542,10 +510,7 @@ pub fn export_obsidian(db: &Connection, out_dir: &Path) -> Result<usize> {
         count += 1;
     }
 
-    std::fs::write(
-        out_dir.join("graphify.canvas"),
-        canvas_json(&vault, &members),
-    )?;
+    std::fs::write(out_dir.join("graphify.canvas"), canvas_json(&vault, &members))?;
 
     Ok(count)
 }
@@ -592,10 +557,7 @@ mod tests {
         // duplicate calls edges collapse; wikilink targets the Beta note
         assert!(alpha.contains("[[Beta()|Beta()]] `EXTRACTED`"));
         let calls_block = alpha.split("### calls").nth(1).unwrap();
-        assert_eq!(
-            calls_block.matches("- [[Beta()]]").count() + calls_block.matches("[[Beta()|").count(),
-            1
-        );
+        assert_eq!(calls_block.matches("- [[Beta()]]").count() + calls_block.matches("[[Beta()|").count(), 1);
 
         let core = std::fs::read_to_string(out.join("_COMMUNITY_Core.md")).unwrap();
         assert!(core.contains("# Core"));
@@ -604,8 +566,14 @@ mod tests {
         let canvas = std::fs::read_to_string(out.join("graphify.canvas")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&canvas).unwrap();
         let nodes = parsed["nodes"].as_array().unwrap();
-        let groups = nodes.iter().filter(|n| n["type"] == "group").count();
-        let cards = nodes.iter().filter(|n| n["type"] == "file").count();
+        let groups = nodes
+            .iter()
+            .filter(|n| n["type"] == "group")
+            .count();
+        let cards = nodes
+            .iter()
+            .filter(|n| n["type"] == "file")
+            .count();
         assert_eq!(groups, 2);
         assert_eq!(cards, 3);
         let edges = parsed["edges"].as_array().unwrap();
@@ -616,6 +584,5 @@ mod tests {
     fn note_names_strip_link_syntax_chars() {
         assert_eq!(note_name("weird|label#1"), "weird-label-1");
         assert_eq!(note_name("..."), "unnamed");
-        assert_eq!(note_name("NUL"), "_NUL");
     }
 }

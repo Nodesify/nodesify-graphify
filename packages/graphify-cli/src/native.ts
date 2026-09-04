@@ -99,4 +99,5 @@ export const affectedNode = binding.affectedNode;
 export const runMcpServer = binding.runMcpServer;
 export const exportTree = binding.exportTree;
 export const exportWiki = binding.exportWiki;
+export const exportObsidian = binding.exportObsidian;
 export const ingestUrl = binding.ingestUrl;

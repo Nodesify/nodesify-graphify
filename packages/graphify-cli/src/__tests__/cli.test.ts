@@ -105,7 +105,7 @@ for (const opt of ['--author', '--contributor', '--graph']) {
 for (const opt of ['--max-children', '--out', '--graph']) {
   assert(optsOf('tree').includes(opt), `tree should have ${opt}`);
 }
-for (const opt of ['--out', '--max-nodes', '--graph']) {
+for (const opt of ['--out', '--max-nodes', '--format', '--graph']) {
   assert(optsOf('wiki').includes(opt), `wiki should have ${opt}`);
 }
 assert(optsOf('prs').includes('--conflicts'), 'prs should have --conflicts');

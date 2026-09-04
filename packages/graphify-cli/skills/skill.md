@@ -219,6 +219,7 @@ Wikipedia-style markdown wiki of the graph: `index.md` plus one article per comm
 ```
 nodesify-graphify wiki --graph .              # writes .graphify/wiki/
 nodesify-graphify wiki --out docs/wiki        # e.g. for GitHub
+nodesify-graphify wiki --format obsidian --out my-vault   # Obsidian vault + canvas
 ```
 
 ## Post-Edit Protocol

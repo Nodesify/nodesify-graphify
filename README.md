@@ -110,6 +110,12 @@ nodesify-graphify wiki --out docs/wiki  # export into docs/ for GitHub
 
 `update` regenerates an existing wiki automatically, so it never drifts stale.
 
+`--format obsidian` writes an Obsidian vault instead: one note per node with `graphify/*` + community tags and `[[wikilinks]]` to neighbors, `_COMMUNITY_*.md` overview notes, and a `graphify.canvas` (communities as colored groups, nodes as cards). Open the output directory as a vault in Obsidian:
+
+```bash
+nodesify-graphify wiki --format obsidian --out my-vault
+```
+
 ### .graphifyignore
 
 Place a `.graphifyignore` file in your project root (gitignore syntax) to exclude files from the graph.
