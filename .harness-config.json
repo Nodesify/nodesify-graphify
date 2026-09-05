@@ -1,0 +1,7 @@
+{
+  "verification": {
+    "testCommand": "npm test --workspace packages/graphify-cli",
+    "buildCommand": "npm run build --workspace packages/graphify-cli",
+    "maxRetries": 2
+  }
+}
